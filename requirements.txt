@@ -1,0 +1,34 @@
+# JLPT Audio Splitter Requirements
+# Version: 2.1 - Minimal dependencies for core functionality
+
+# Core
+python-dotenv==1.0.0
+
+# Audio Processing
+openai-whisper>=20231117
+# Note: FFmpeg required (install separately via: brew install ffmpeg)
+
+# AI API - Google Gemini (FREE)
+google-generativeai>=0.3.2
+# Note: This package is deprecated, consider migrating to google-genai in future
+
+# Utilities (auto-installed with whisper)
+# numpy>=1.26.3
+# torch>=2.0.0
+# tqdm>=4.65.0
+
+# =============================================================================
+# FUTURE DEPENDENCIES (not yet implemented):
+# =============================================================================
+# Backend API:
+# fastapi==0.109.0
+# uvicorn[standard]==0.27.0
+# python-multipart==0.0.6
+#
+# Database:
+# psycopg2-binary==2.9.9
+# sqlalchemy==2.0.25
+#
+# Image Processing (OCR):
+# Pillow==10.2.0
+# pytesseract==0.3.10
