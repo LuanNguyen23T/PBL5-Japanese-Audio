@@ -78,6 +78,7 @@ def audio_to_text(audio_path: str, output_path: str = None, model = None, model_
         str(audio_file),
         language="ja",  # Japanese
         task="transcribe",
+        initial_prompt="JLPTの聴解問題です。文脈を理解し、句読点（。、）を正しく含めた自然な日本語で書き起こしてください。",
         verbose=False
     )
     
@@ -248,9 +249,9 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="base",
+        default="small",
         choices=["tiny", "base", "small", "medium", "large"],
-        help="Whisper model size (default: base)"
+        help="Whisper model size (default: small)"
     )
     
     args = parser.parse_args()
