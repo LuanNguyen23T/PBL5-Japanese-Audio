@@ -217,7 +217,10 @@ YÊU CẦU:
    - Markers: "いちばん" (1), "にばん" (2), "さんばん" (3), "よんばん" (4), "ごばん" (5)...
    - "ばん" (ban) = số thứ tự câu hỏi
    - Thường có pause/khoảng lặng giữa các câu hỏi
-   
+   - Điểm cần cắt đó là khi có marker số + "ばん" (ban) và trước đó là tiếng chuông
+   - Các câu hỏi trong cùng một mondai sẽ có thời lượng giống nhau
+   - しつもん (しつもん) không phải là một marker để cắt audio
+
 3. Xác định timestamps chính xác cho:
    - Bắt đầu và kết thúc mỗi mondai
    - Bắt đầu và kết thúc mỗi câu hỏi
