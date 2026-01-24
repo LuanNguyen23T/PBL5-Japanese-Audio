@@ -247,10 +247,6 @@ If you encounter database errors and need a full reset:
    - Verify CORS settings in backend `.env`
    - Check browser console for specific error messages
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

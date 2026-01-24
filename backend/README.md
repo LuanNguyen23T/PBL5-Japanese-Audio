@@ -140,17 +140,3 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 # Example: pytest
 pytest
 ```
-
-## Further Information
-
-**Project-Specific Guides:**
-
-- [FastAPI Guide for Backend Development](../../docs/backend/fastapi-guide.md)
-- [Database Migrations with Alembic](../../docs/backend/alembic-migrations.md)
-
-**Official Documentation:**
-
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Pydantic](https://docs.pydantic.dev/)
-- [SQLAlchemy](https://www.sqlalchemy.org/)
-- [Alembic](https://alembic.sqlalchemy.org/)
