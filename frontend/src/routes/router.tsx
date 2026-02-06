@@ -5,7 +5,6 @@ import { ProtectedRoute } from '../components/ProtectedRoute'
 
 // Lazy load components
 const Home = lazy(() => import('../pages/Home'))
-const About = lazy(() => import('../pages/About'))
 const Dashboard = lazy(() => import('../pages/Dashboard'))
 const Login = lazy(() => import('../pages/Login'))
 const Register = lazy(() => import('../pages/Register'))
@@ -34,10 +33,6 @@ const routes = {
     {
       index: true,
       element: <Home />,
-    },
-    {
-      path: 'about',
-      element: <About />,
     },
     {
       path: 'login',
