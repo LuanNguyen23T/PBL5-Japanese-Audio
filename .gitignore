@@ -103,19 +103,19 @@ temp/
 *.crt
 *.cert
 
+# Input files
+input/
+*.mp3
+*.wav
+*.m4a
+!input/.gitkeep
+
 # Output files
 output/
 *.mp3
 *.wav
 *.m4a
 *.txt
-
-# Large input files
-input/*.mp3
-input/*.wav
-input/*.m4a
-!input/.gitkeep
-
 
 # Mac
 .DS_Store
