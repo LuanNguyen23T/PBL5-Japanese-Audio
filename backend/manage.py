@@ -3,10 +3,10 @@ import subprocess
 import os
 import asyncio
 from sqlalchemy import create_engine, select
-from app.config import get_settings
-from app.db import Base
-from app.db.database import AsyncSessionLocal
-from app.db.models import User
+from app.core.config import get_settings
+from app.db.base import Base
+from app.db.session import AsyncSessionLocal
+from app.modules.users.models import User
 
 app = typer.Typer()
 settings = get_settings()

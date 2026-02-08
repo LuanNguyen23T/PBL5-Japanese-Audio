@@ -72,4 +72,12 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
+    
+    # Check if account is locked
+    if user.is_locked():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is locked until {user.locked_until.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
+    
     return user

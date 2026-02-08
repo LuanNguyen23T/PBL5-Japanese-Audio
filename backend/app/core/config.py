@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # Email Settings
+    SMTP_EMAIL: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_NAME: str = "PBL5 Japanese Audio"
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+
+    # Cloudinary Settings
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
+
+    # Google OAuth Settings
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
