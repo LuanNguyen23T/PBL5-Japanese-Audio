@@ -216,8 +216,7 @@ YÊU CẦU:
    - Thường có pause/khoảng lặng giữa các câu hỏi
    - Điểm cần cắt đó là khi có marker số + "ばん" (ban) và trước đó là tiếng chuông
    - Các câu hỏi trong cùng một mondai sẽ có thời lượng giống nhau
-   - しつもん (しつもん) không phải là một marker để cắt audio
-
+   - Các file đề JLPT N1, N2 ở Mondai 5 (gần cuối bài nghe) sẽ có 2 "しつもん" nằm trong một đoạn hội thoại và không được cắt audio tại đây. Chỉ được cắt nếu có chữ ”番”.
 3. Xác định timestamps chính xác cho:
    - Bắt đầu và kết thúc mỗi mondai
    - Bắt đầu và kết thúc mỗi câu hỏi
