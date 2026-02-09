@@ -2,12 +2,9 @@
 JLPT Audio Splitter - Tách file audio JLPT thành mondai và câu hỏi tự động
 
 Công nghệ sử dụng:
-- OpenAI Whisper: Speech-to-text với timestamps
 - Google Gemini: AI phân tích cấu trúc (FREE)
 - FFmpeg: Audio processing và cắt file (thay PyDub)
 
-Author: PBL5 Team
-Version: 2.1 - FFmpeg compatible
 """
 
 import whisper
@@ -531,9 +528,6 @@ LƯU Ý:
 
 
 def main():
-    """
-    Entry point - Sử dụng demo
-    """
     import sys
     
     # Check command line arguments
