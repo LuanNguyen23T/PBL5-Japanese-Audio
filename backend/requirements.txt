@@ -63,7 +63,7 @@ pluggy==1.6.0
 pooch==1.9.0
 proto-plus==1.27.1
 protobuf==5.29.6
-psycopg2==2.9.10
+psycopg2-binary==2.9.10
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.22
@@ -80,7 +80,7 @@ python-dotenv==1.1.0
 python-jose==3.5.0
 python-multipart==0.0.20
 PyYAML==6.0.2
-reazonspeech-k2-asr @ file:///tmp/ReazonSpeech/pkg/k2-asr
+reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr
 requests==2.32.5
 rich==14.0.0
 rsa==4.9.1
