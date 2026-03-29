@@ -5,7 +5,7 @@ import {
   AlertCircle, Headphones, FileAudio, RotateCcw, Brain, Eye,
   CheckCircle2, Play, Pause, Wand2, Save, Image as ImageIcon
 } from 'lucide-react'
-import { aiExamClient, AIJobStatus, AIQuestion, AIExamResult } from './api/examClient'
+import { aiExamClient, AIJobStatus, AIQuestion, AIExamResult, AIQuestionOption } from './api/examClient'
 import { examClient } from './api/examClient'
 import { toast } from '@/hooks/use-toast'
 
@@ -25,6 +25,34 @@ const LEVEL_COLORS: Record<Level, string> = {
 }
 
 const STEP_LABELS = ['Upload & Cấu hình', 'AI Đang xử lý', 'Review kết quả', 'Xác nhận & Lưu']
+const ANSWER_LABELS = ['A', 'B', 'C', 'D']
+
+function formatSeconds(seconds?: number) {
+  if (seconds === undefined || seconds === null || Number.isNaN(seconds)) return '--:--'
+  const totalMs = Math.max(0, Math.round(seconds * 1000))
+  const totalSeconds = Math.floor(totalMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+  const ms = totalMs % 1000
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+}
+
+function composeExplanation(question: AIQuestion) {
+  const blocks = [question.introduction?.trim(), question.script_text?.trim()].filter(Boolean)
+  return blocks.join('\n\n')
+}
+
+function buildAnswerOptions(count: 3 | 4, existing: AIQuestionOption[] = []): AIQuestionOption[] {
+  return ANSWER_LABELS.slice(0, count).map((label, index) => ({
+    label,
+    content: existing[index]?.content ?? '',
+    is_correct: existing[index]?.is_correct ?? false,
+  }))
+}
 
 // ─── Step Indicator ──────────────────────────────────────────────────────────
 
@@ -198,11 +226,12 @@ function Step1({ audioFile, setAudioFile, level, setLevel, title, setTitle, onNe
         <div className="flex items-start gap-3">
           <Sparkles className="w-5 h-5 text-violet-500 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-bold text-violet-800 dark:text-violet-300">Pipeline Hybrid AI</p>
+            <p className="text-sm font-bold text-violet-800 dark:text-violet-300">Pipeline Local Reazon</p>
             <p className="text-xs text-violet-600 dark:text-violet-400 mt-1 leading-relaxed">
-              <span className="font-semibold">ReazonSpeech</span> (ASR tiếng Nhật) → Transcribe audio chính xác →
-              <span className="font-semibold"> Gemini AI</span> → Refine script + Detect timestamps +
-              Sinh câu hỏi JLPT {level} với 4 đáp án tự động.
+              <span className="font-semibold">Bell splitter</span> → dò `Bell_sound` và loại `Bell_2baku` →
+              <span className="font-semibold"> PyDub</span> → cắt từng câu →
+              <span className="font-semibold"> ReazonSpeech</span> → sinh script có dấu câu / speaker label →
+              tạo draft câu hỏi cục bộ để bạn rà lại và điền đáp án JLPT {level}.
             </p>
           </div>
         </div>
@@ -214,7 +243,7 @@ function Step1({ audioFile, setAudioFile, level, setLevel, title, setTitle, onNe
           disabled={!audioFile || !title.trim() || loading}
           className="flex items-center gap-2 px-7 py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-xl text-sm font-bold hover:from-violet-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-          Bắt đầu sinh đề với AI
+          Bắt đầu xử lý audio
         </button>
       </div>
     </div>
@@ -259,11 +288,13 @@ function Step2Processing({ jobId, onDone, onFailed }: Step2Props) {
   }, [jobId])
 
   const steps = [
-    { icon: <FileAudio className="w-4 h-4" />, label: 'ReazonSpeech ASR – Transcribe audio', key: 'reazon' },
-    { icon: <Upload className="w-4 h-4" />, label: 'Upload audio lên Gemini Files API', key: 'upload' },
-    { icon: <Wand2 className="w-4 h-4" />, label: 'Gemini refine script + speaker detection', key: 'refine' },
-    { icon: <Eye className="w-4 h-4" />, label: 'Gemini generate timestamps (mondai/question)', key: 'timestamps' },
-    { icon: <Brain className="w-4 h-4" />, label: 'Gemini sinh câu hỏi JLPT + 4 đáp án', key: 'questions' },
+    { icon: <Upload className="w-4 h-4" />, label: 'Upload audio gốc lên Cloudinary', key: 'upload' },
+    { icon: <Eye className="w-4 h-4" />, label: 'Detect bell timestamps bằng Bell_sound + Bell_2baku', key: 'split-detect' },
+    { icon: <FileAudio className="w-4 h-4" />, label: 'PyDub cắt audio theo timestamp vừa tìm được', key: 'split-cut' },
+    { icon: <Wand2 className="w-4 h-4" />, label: 'ReazonSpeech transcribe từng đoạn audio đã cắt', key: 'reazon' },
+    { icon: <Brain className="w-4 h-4" />, label: 'Áp format Reazon: dấu câu + 男：/女：', key: 'refine' },
+    { icon: <Sparkles className="w-4 h-4" />, label: 'Tạo draft câu hỏi cục bộ từ script đã tách', key: 'questions' },
+    { icon: <CheckCircle2 className="w-4 h-4" />, label: 'Gắn audio clip URL từ timestamp thực', key: 'finalize' },
   ]
 
   const isDone = job?.status === 'done'
@@ -271,12 +302,8 @@ function Step2Processing({ jobId, onDone, onFailed }: Step2Props) {
   const progressMsg = job?.progress_message || 'Khởi tạo pipeline...'
 
   // Determine which step is active from progress message
-  const activeStep = progressMsg.includes('Step 1') ? 0
-    : progressMsg.includes('Step 2') ? 1
-      : progressMsg.includes('Step 3') ? 2
-        : progressMsg.includes('Step 4') ? 3
-          : progressMsg.includes('Step 5') ? 4
-            : isDone ? 5 : -1
+  const matchedStep = progressMsg.match(/Step\s+(\d+)\//i)
+  const activeStep = matchedStep ? Math.max(0, Math.min(steps.length - 1, Number(matchedStep[1]) - 1)) : isDone ? steps.length : -1
 
   return (
     <div className="flex flex-col items-center py-6 space-y-8">
@@ -368,6 +395,12 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
     updateQuestion(qIdx, { answers })
   }
 
+  const updateAnswerCount = (qIdx: number, count: 3 | 4) => {
+    const q = editableQuestions[qIdx]
+    const nextAnswers = buildAnswerOptions(count, q.answers)
+    updateQuestion(qIdx, { answers: nextAnswers })
+  }
+
   const groupedQuestions = editableQuestions.reduce((acc, q, idx) => {
     if (!acc[q.mondai_group]) acc[q.mondai_group] = []
     acc[q.mondai_group].push({ q, idx })
@@ -377,7 +410,8 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
   const activeQ = editableQuestions[activeQIdx]
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 mt-4">
+    <div className="space-y-6 mt-4">
+      <div className="flex flex-col md:flex-row gap-6">
       {/* Left Sidebar: Question List */}
       <div className="w-full md:w-[300px] shrink-0 border border-slate-200 dark:border-slate-700 rounded-2xl bg-white dark:bg-slate-800/20 overflow-hidden flex flex-col h-[700px] shadow-sm">
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/80">
@@ -433,7 +467,16 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
                   <span className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-md">
                     {activeQ.mondai_group} - Câu {activeQ.question_number}
                   </span>
-
+                  {activeQ.source_segment_index && (
+                    <span className="text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2.5 py-1 rounded-md">
+                      Segment {activeQ.source_segment_index}{(activeQ.source_question_index && activeQ.source_question_index > 1) ? ` · Q${activeQ.source_question_index}` : ''}
+                    </span>
+                  )}
+                  {(activeQ.source_start_time !== undefined && activeQ.source_end_time !== undefined) && (
+                    <span className="text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 px-2.5 py-1 rounded-md">
+                      {formatSeconds(activeQ.source_start_time)} → {formatSeconds(activeQ.source_end_time)}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -456,6 +499,20 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
                 ) : (
                   <p className="text-sm text-slate-400">Chưa có audio</p>
                 )}
+              </div>
+
+              {/* Introduction */}
+              <div>
+                <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">
+                  Ngữ cảnh mở đầu (Introduction)
+                </label>
+                <textarea
+                  value={activeQ.introduction || ''}
+                  onChange={e => updateQuestion(activeQIdx, { introduction: e.target.value })}
+                  rows={4}
+                  placeholder="Gõ phần mô tả bối cảnh..."
+                  className="w-full min-h-[112px] px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
               </div>
 
               {/* Script */}
@@ -491,9 +548,31 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
 
               {/* Choices */}
               <div>
-                <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">
-                  Đáp án lựa chọn (Choices)
-                </label>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <label className="block text-sm font-bold text-slate-800 dark:text-slate-200">
+                    Đáp án lựa chọn (Choices)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Số đáp án</span>
+                    {[3, 4].map((count) => {
+                      const isActive = activeQ.answers.length === count
+                      return (
+                        <button
+                          key={count}
+                          type="button"
+                          onClick={() => updateAnswerCount(activeQIdx, count as 3 | 4)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                            isActive
+                              ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
+                              : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}
+                        >
+                          {count} đáp án
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
                 <div className="space-y-3">
                   {activeQ.answers.map((a, ai) => (
                     <div key={ai} className="flex items-center gap-4 group/answer">
@@ -551,6 +630,7 @@ function Step3Review({ editableQuestions, setEditableQuestions }: Step3Props) {
         )}
       </div>
     </div>
+    </div>
   )
 }
 
@@ -586,7 +666,7 @@ function Step4Save({ questions, level, title, onBack }: Step4Props) {
           question_number: q.question_number,
           question_text: q.question_text,
           audio_clip_url: q.audio_url,
-          explanation: q.script_text || '',
+          explanation: composeExplanation(q),
           answers: q.answers.map((a, i) => ({
             question_id: '',
             content: a.content,
@@ -803,6 +883,7 @@ export default function AICreateExamPage() {
 
   // Step 3 state
   const [editableQuestions, setEditableQuestions] = useState<AIQuestion[]>([])
+  const [aiResult, setAiResult] = useState<AIExamResult | null>(null)
 
   const [step, setStep] = useState<WizardStep>(1)
 
@@ -821,6 +902,7 @@ export default function AICreateExamPage() {
   }
 
   const handleJobDone = (result: AIExamResult) => {
+    setAiResult(result)
     setEditableQuestions(result.questions)
     setStep(3)
   }
@@ -853,7 +935,7 @@ export default function AICreateExamPage() {
                 <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Sinh đề bằng AI</h1>
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400 ml-13">
-                Upload file audio JLPT → AI tự động transcribe, phân tích và sinh câu hỏi với đáp án
+                Upload file audio JLPT → split bằng chuông → Reazon tạo script local → tạo draft câu hỏi không dùng Gemini
               </p>
             </>
           )}
@@ -911,10 +993,12 @@ export default function AICreateExamPage() {
         )}
 
         {step === 3 && (
-          <Step3Review
-            editableQuestions={editableQuestions}
-            setEditableQuestions={setEditableQuestions}
-          />
+          aiResult && (
+            <Step3Review
+              editableQuestions={editableQuestions}
+              setEditableQuestions={setEditableQuestions}
+            />
+          )
         )}
 
         {step === 4 && (

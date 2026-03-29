@@ -167,6 +167,11 @@ export interface AIQuestion {
   script_text: string;
   question_text: string;
   audio_url?: string;
+  source_segment_index?: number;
+  source_question_index?: number;
+  source_start_time?: number;
+  source_end_time?: number;
+  source_transcript?: string;
   answers: AIQuestionOption[];
 }
 
@@ -185,9 +190,19 @@ export interface AITimestampMondai {
   questions: AITimestampQuestion[];
 }
 
+export interface AISplitSegment {
+  segment_index: number;
+  file_name: string;
+  start_time: number;
+  end_time: number;
+  transcript: string;
+  refined_transcript?: string;
+}
+
 export interface AIExamResult {
   raw_transcript: string;
   refined_script: string;
+  split_segments: AISplitSegment[];
   timestamps?: AITimestampMondai[];
   questions: AIQuestion[];
 }
