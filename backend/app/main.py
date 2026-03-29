@@ -78,7 +78,7 @@ app = FastAPI(
         },
         {
             "name": "ai",
-            "description": "AI-powered exam generation: upload audio \u2192 ReazonSpeech ASR \u2192 Gemini analysis \u2192 JLPT questions"
+            "description": "Local exam generation: upload audio \u2192 bell split \u2192 ReazonSpeech ASR \u2192 JLPT draft questions"
         }
     ],
     swagger_ui_parameters={

@@ -26,6 +26,11 @@ class AIQuestion(BaseModel):
     script_text: str
     question_text: str
     audio_url: Optional[str] = None
+    source_segment_index: Optional[int] = None
+    source_question_index: Optional[int] = None
+    source_start_time: Optional[float] = None
+    source_end_time: Optional[float] = None
+    source_transcript: Optional[str] = None
     answers: List[AIQuestionOption]
 
 
@@ -44,9 +49,19 @@ class AITimestampMondai(BaseModel):
     questions: List[AITimestampQuestion]
 
 
+class AISplitSegment(BaseModel):
+    segment_index: int
+    file_name: str
+    start_time: float
+    end_time: float
+    transcript: str
+    refined_transcript: Optional[str] = None
+
+
 class AIExamResult(BaseModel):
     raw_transcript: str
     refined_script: str
+    split_segments: List[AISplitSegment] = []
     timestamps: Optional[List[AITimestampMondai]] = None
     questions: List[AIQuestion]
 

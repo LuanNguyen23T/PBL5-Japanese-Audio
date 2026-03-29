@@ -1,63 +1,413 @@
-import os
-import json
+import io
 import logging
-import time
-import tempfile
-import asyncio
+import os
+import re
 import shutil
+import tempfile
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List
-from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Optional, Sequence
 
-from app.core.config import get_settings
 from app.modules.ai_exam.schemas import (
-    AIExamResult, AIQuestion, AIQuestionOption,
-    AITimestampMondai, AITimestampQuestion
+    AIExamResult,
+    AIQuestion,
+    AIQuestionOption,
+    AISplitSegment,
+    AITimestampMondai,
+    AITimestampQuestion,
 )
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
-PIPELINE_VERSION = "ai-exam-cache-v1"
+PIPELINE_VERSION = "ai-exam-cache-v6-reazon-local-ban-aware-numbering"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+REAZON_SPLIT_DIR = REPO_ROOT / "R&D" / "Reazon" / "Spilit"
+BELL_SOUND_PATH = REAZON_SPLIT_DIR / "Bell_sound.mp3"
+BELL_2BAKU_PATH = REAZON_SPLIT_DIR / "Bell_2baku.mp3"
+MAX_MONDAI = 5
+MAX_QUESTIONS_PER_SEGMENT = 1
+
+QUESTION_NUMBER_PATTERNS = [
+    (re.compile(r"^(?:第)?(?:十二|じゅうに|ジュウニ|12)\s*番"), 12),
+    (re.compile(r"^(?:第)?(?:十一|じゅういち|ジュウイチ|11)\s*番"), 11),
+    (re.compile(r"^(?:第)?(?:十|じゅう|ジュウ|10)\s*番"), 10),
+    (re.compile(r"^(?:第)?(?:九|きゅう|く|キュウ|ク|9)\s*番"), 9),
+    (re.compile(r"^(?:第)?(?:八|はち|ハチ|8)\s*番"), 8),
+    (re.compile(r"^(?:第)?(?:七|なな|しち|ナナ|シチ|7)\s*番"), 7),
+    (re.compile(r"^(?:第)?(?:六|ろく|ロク|6)\s*番"), 6),
+    (re.compile(r"^(?:第)?(?:五|ご|ゴ|5)\s*番"), 5),
+    (re.compile(r"^(?:第)?(?:四|よん|ヨン|4)\s*番"), 4),
+    (re.compile(r"^(?:第)?(?:三|さん|サン|3)\s*番"), 3),
+    (re.compile(r"^(?:第)?(?:二|に|ニ|2)\s*番"), 2),
+    (re.compile(r"^(?:第)?(?:一|いち|イチ|1)\s*番"), 1),
+]
 
 
-# ─── Helpers ───────────────────────────────────────────────────────────────
-
-def _strip_json_markdown(text: str) -> str:
-    """Strip ```json ... ``` or ``` ... ``` fences from LLM output."""
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
-    return text.strip()
+def _format_seconds(seconds: float) -> str:
+    total_ms = int(round(seconds * 1000))
+    minutes, ms = divmod(total_ms, 60000)
+    secs, ms = divmod(ms, 1000)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}"
 
 
-# ─── ReazonSpeech Transcriber ──────────────────────────────────────────────
+def _strip_reazon_frame(text: str) -> str:
+    lines = [line.rstrip() for line in (text or "").splitlines() if line.strip() and line.strip() != "--------"]
+    return "\n".join(lines).strip()
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [item.strip() for item in re.findall(r"[^。！？\n]+[。！？]?", text or "") if item.strip()]
+
+
+def _normalize_sentence(sentence: str) -> str:
+    normalized = (sentence or "").strip()
+    if normalized and not normalized.endswith(("。", "？", "！")):
+        normalized += "。"
+    return normalized
+
+
+def _is_question_sentence(sentence: str) -> bool:
+    normalized = (sentence or "").strip()
+    if not normalized:
+        return False
+    if "：" in normalized:
+        return False
+    if normalized.endswith(("か。", "か？", "ですか。", "でしょうか。", "ますか。")):
+        return True
+    if any(keyword in normalized for keyword in ["何", "どれ", "どこ", "誰", "いつ", "どう", "どの", "どちら", "いくつ", "なぜ", "どうして"]):
+        return True
+    return False
+
+
+def _extract_question_texts(text: str) -> list[str]:
+    sentences = _split_sentences(text)
+    candidates = [_normalize_sentence(sentence) for sentence in sentences if _is_question_sentence(sentence)]
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate not in deduped:
+            deduped.append(candidate)
+    if deduped:
+        return deduped[-1:]
+    fallback = [_normalize_sentence(sentence) for sentence in sentences if "：" not in sentence]
+    return fallback[-1:] if fallback else []
+
+
+def _extract_spoken_question_number(text: str) -> Optional[int]:
+    normalized_text = re.sub(r"^[\s。、「」『』\-\n]+", "", text or "")
+    for pattern, number in QUESTION_NUMBER_PATTERNS:
+        if pattern.search(normalized_text):
+            return number
+    return None
+
+
+def _parse_formatted_segment(formatted_text: str, raw_text: str) -> tuple[Optional[str], str, list[str], Optional[int]]:
+    cleaned = _strip_reazon_frame(formatted_text)
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", cleaned) if block.strip()]
+
+    introduction = blocks[0] if blocks else ""
+    outro = blocks[-1] if len(blocks) >= 2 else ""
+    dialogue_blocks = blocks[1:-1] if len(blocks) >= 3 else []
+    script_text = "\n\n".join(dialogue_blocks).strip()
+
+    if not script_text:
+        speaker_lines = [line.strip() for line in cleaned.splitlines() if "：" in line]
+        if speaker_lines:
+            script_text = "\n".join(speaker_lines).strip()
+        elif len(blocks) >= 2:
+            script_text = "\n\n".join(blocks[:-1]).strip()
+        else:
+            script_text = cleaned or raw_text
+
+    question_texts = _extract_question_texts(outro)
+    if not question_texts:
+        tail_source = blocks[-2] + "\n" + blocks[-1] if len(blocks) >= 2 else cleaned
+        question_texts = _extract_question_texts(tail_source)
+    if not question_texts:
+        fallback_question = _normalize_sentence(outro.strip()) if outro.strip() and "：" not in outro else ""
+        question_texts = [fallback_question] if fallback_question else [""]
+
+    spoken_number = _extract_spoken_question_number(introduction or cleaned or raw_text)
+    limited_question_texts = question_texts[-1:] or [""]
+    return introduction or None, script_text or raw_text, limited_question_texts, spoken_number
+
+
+def _format_jlpt_master(chunks_data: Sequence[dict]) -> str:
+    if not chunks_data:
+        return ""
+
+    texts: list[str] = []
+    for chunk in chunks_data:
+        text = re.sub(r"(ピン|パン|プッ|ピッ|プ|ピ)", "", chunk.get("text", ""))
+        text = text.replace("。", "").strip()
+        texts.append(text)
+
+    genders = [chunk.get("gender", "Unknown") for chunk in chunks_data]
+
+    dialogue_start = 0
+    for index, text in enumerate(texts):
+        if text.endswith("か") or text.endswith("か？"):
+            dialogue_start = index + 1
+            break
+    if dialogue_start == 0:
+        dialogue_start = min(2, len(texts))
+
+    intro_texts = [text for text in texts[:dialogue_start] if text]
+    intro_str = "。".join(intro_texts)
+    if intro_str:
+        intro_str += "。"
+    intro_str = re.sub(r"(次。?)", "", intro_str).strip()
+    intro_str = re.sub(r"((?:一|二|三|四|五|六|七|八|九|十|1|2|3|4|5|6|7|8|9|10)番)？?。?", r"\1\n", intro_str)
+
+    dialogue_end = len(texts)
+    for index in range(len(texts) - 1, dialogue_start - 1, -1):
+        if texts[index].endswith("か") or texts[index].endswith("か？"):
+            out_start = index
+            for inner in range(index, max(dialogue_start - 1, index - 5), -1):
+                if any(subject in texts[inner] for subject in ["男の人", "女の人", "学生", "男の子", "女の子", "人", "何"]):
+                    out_start = inner
+            dialogue_end = out_start
+            break
+
+    outro_texts = [text for text in texts[dialogue_end:] if text]
+    outro_str = "。".join(outro_texts)
+    if outro_str:
+        outro_str += "。"
+
+    dialogue_blocks: list[str] = []
+    current_gender = None
+    current_text = ""
+    for index in range(dialogue_start, dialogue_end):
+        text = texts[index]
+        gender = genders[index]
+        if not text:
+            continue
+        if gender == "Unknown":
+            gender = current_gender if current_gender else "女"
+        if gender == current_gender:
+            current_text += "。" + text
+        else:
+            if current_text:
+                dialogue_blocks.append(f"{current_gender}：{current_text}。")
+            current_gender = gender
+            current_text = text
+
+    if current_text:
+        dialogue_blocks.append(f"{current_gender}：{current_text}。")
+
+    dialogue_blocks = [block.replace("：。", "：") for block in dialogue_blocks]
+
+    output = ["--------"]
+    if intro_str:
+        output.append(intro_str)
+        output.append("")
+    if dialogue_blocks:
+        output.extend(dialogue_blocks)
+        output.append("")
+    if outro_str:
+        output.append(outro_str)
+    output.append("--------")
+    return "\n".join(output).strip()
+
+
+@dataclass
+class SplitAudioChunk:
+    segment_index: int
+    file_name: str
+    start_ms: int
+    end_ms: int
+    audio_bytes: bytes
+    transcript: str = ""
+    refined_transcript: str = ""
+    introduction: Optional[str] = None
+    script_text: str = ""
+    question_texts: list[str] = field(default_factory=list)
+    spoken_question_number: Optional[int] = None
+
+
+@dataclass
+class StructuredSegment:
+    source_segment_index: int
+    source_question_index: int
+    mondai_group: str
+    question_number: int
+    introduction: Optional[str]
+    script_text: str
+    question_text: str
+    refined_transcript: str
+
+
+class BellAudioSplitter:
+    """Detect bell timestamps, skip Bell_2baku traps, and cut question clips."""
+
+    def __init__(
+        self,
+        bell1_path: Path = BELL_SOUND_PATH,
+        bell2_path: Path = BELL_2BAKU_PATH,
+        threshold_percent: float = 0.85,
+        min_distance_sec: int = 10,
+        trap_window_sec: float = 4.0,
+        trim_before_next_bell_ms: int = 100,
+        min_segment_length_ms: int = 1500,
+    ):
+        self.bell1_path = bell1_path
+        self.bell2_path = bell2_path
+        self.threshold_percent = threshold_percent
+        self.min_distance_sec = min_distance_sec
+        self.trap_window_sec = trap_window_sec
+        self.trim_before_next_bell_ms = trim_before_next_bell_ms
+        self.min_segment_length_ms = min_segment_length_ms
+
+    def _ensure_assets(self) -> None:
+        missing = [str(path) for path in (self.bell1_path, self.bell2_path) if not path.exists()]
+        if missing:
+            raise RuntimeError(f"Bell sample file not found: {', '.join(missing)}")
+
+    def find_question_starts(self, audio_path: str) -> list[int]:
+        import librosa
+        import numpy as np
+        from scipy import signal
+
+        self._ensure_assets()
+
+        main_audio, sr = librosa.load(audio_path, sr=None, mono=True)
+        bell1_audio, _ = librosa.load(str(self.bell1_path), sr=sr, mono=True)
+        bell2_audio, _ = librosa.load(str(self.bell2_path), sr=sr, mono=True)
+
+        corr2 = signal.correlate(main_audio, bell2_audio, mode="valid", method="fft")
+        thresh2 = float(np.max(corr2)) * self.threshold_percent
+        peaks2, _ = signal.find_peaks(corr2, height=thresh2, distance=sr * self.min_distance_sec)
+        bell2_times_sec = [peak / sr for peak in peaks2]
+
+        corr1 = signal.correlate(main_audio, bell1_audio, mode="valid", method="fft")
+        thresh1 = float(np.max(corr1)) * self.threshold_percent
+        peaks1, _ = signal.find_peaks(corr1, height=thresh1, distance=sr * self.min_distance_sec)
+        bell1_times_sec = [peak / sr for peak in peaks1]
+
+        valid_bell_times_ms: list[int] = []
+        for bell_time in bell1_times_sec:
+            if any(abs(bell_time - trap_time) < self.trap_window_sec for trap_time in bell2_times_sec):
+                continue
+            bell_ms = int(bell_time * 1000)
+            if valid_bell_times_ms and bell_ms - valid_bell_times_ms[-1] < self.min_segment_length_ms:
+                continue
+            valid_bell_times_ms.append(bell_ms)
+
+        return valid_bell_times_ms
+
+    def split_audio(self, audio_bytes: bytes, suffix: str = ".mp3") -> list[SplitAudioChunk]:
+        from pydub import AudioSegment
+
+        with tempfile.NamedTemporaryFile(suffix=suffix or ".mp3", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            bell_times_ms = self.find_question_starts(tmp_path)
+            if not bell_times_ms:
+                raise RuntimeError("No valid bell timestamps found in audio.")
+
+            audio = AudioSegment.from_file(tmp_path)
+            segments: list[SplitAudioChunk] = []
+            for index, start_ms in enumerate(bell_times_ms):
+                next_start_ms = bell_times_ms[index + 1] if index + 1 < len(bell_times_ms) else len(audio)
+                end_ms = next_start_ms - self.trim_before_next_bell_ms if index + 1 < len(bell_times_ms) else next_start_ms
+                end_ms = max(end_ms, start_ms)
+                if end_ms - start_ms < self.min_segment_length_ms:
+                    logger.warning(
+                        "Skipping split segment %s because it is too short: %.2fs",
+                        index + 1,
+                        (end_ms - start_ms) / 1000.0,
+                    )
+                    continue
+
+                chunk = audio[start_ms:end_ms]
+                buffer = io.BytesIO()
+                chunk.export(buffer, format="wav")
+                segments.append(
+                    SplitAudioChunk(
+                        segment_index=len(segments) + 1,
+                        file_name=f"segment_{len(segments) + 1:02d}.wav",
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        audio_bytes=buffer.getvalue(),
+                    )
+                )
+
+            if not segments:
+                raise RuntimeError("Bell timestamps were detected, but no usable audio segments were produced.")
+
+            return segments
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
 
 class ReazonTranscriber:
-    """Local Japanese ASR using ReazonSpeech-k2."""
+    """Local Japanese ASR using ReazonSpeech-k2 + local speaker formatting."""
+
+    NOISE_PATTERN = re.compile(r"(ピン|パン|プッ|ピッ|プ|ピ)")
 
     def __init__(self, model_version: str = "reazonspeech-k2-v2"):
         self.model_version = model_version
         self._model = None
+        self._gender_classifier = None
+        self._gender_classifier_attempted = False
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         try:
             from reazonspeech.k2.asr import load_model
+
             self._model = load_model(self.model_version)
             logger.info("ReazonSpeech model loaded.")
-        except ImportError:
+        except ImportError as exc:
             raise RuntimeError(
                 "ReazonSpeech not installed. Run: pip install reazonspeech-k2-asr"
-            )
+            ) from exc
 
-    def transcribe(self, audio_bytes: bytes, suffix: str = ".mp3") -> str:
-        """Transcribe audio bytes → raw Japanese text."""
+    def _load_gender_classifier(self) -> None:
+        if self._gender_classifier_attempted:
+            return
+        self._gender_classifier_attempted = True
+        try:
+            from transformers import pipeline
+
+            self._gender_classifier = pipeline(
+                "audio-classification",
+                model="alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech",
+            )
+            logger.info("Gender classifier loaded.")
+        except ImportError:
+            logger.warning("transformers is not installed. Continuing without gender classifier.")
+            self._gender_classifier = None
+        except Exception as exc:
+            logger.warning("Failed to load gender classifier: %s", exc)
+            self._gender_classifier = None
+
+    def _clean_text(self, text: str) -> str:
+        text = self.NOISE_PATTERN.sub("", text or "")
+        text = re.sub(r"\s+", "", text)
+        return text.strip()
+
+    def _predict_gender(self, audio_path: str) -> str:
+        self._load_gender_classifier()
+        if self._gender_classifier is None:
+            return "Unknown"
+        try:
+            prediction = self._gender_classifier(audio_path)
+            top_label = prediction[0]["label"].lower()
+            return "男" if top_label == "male" else "女"
+        except Exception as exc:
+            logger.warning("Gender classification failed for %s: %s", audio_path, exc)
+            return "Unknown"
+
+    def transcribe(self, audio_bytes: bytes, suffix: str = ".wav") -> dict:
         try:
             from pydub import AudioSegment
             from pydub.silence import split_on_silence
-            from reazonspeech.k2.asr import transcribe, audio_from_path
-        except ImportError as e:
-            raise RuntimeError(f"Missing dependency: {e}")
+            from reazonspeech.k2.asr import audio_from_path, transcribe
+        except ImportError as exc:
+            raise RuntimeError(f"Missing dependency: {exc}") from exc
 
         if self._model is None:
             self._load_model()
@@ -68,421 +418,71 @@ class ReazonTranscriber:
 
         try:
             audio = AudioSegment.from_file(tmp_path)
-            silence_thresh = audio.dBFS - 14
+            silence_thresh = audio.dBFS - 14 if audio.dBFS != float("-inf") else -50
             chunks = split_on_silence(
                 audio,
-                min_silence_len=250,
+                min_silence_len=400,
                 silence_thresh=silence_thresh,
-                keep_silence=200,
+                keep_silence=150,
             )
-            logger.info(f"Split into {len(chunks)} chunks for transcription.")
+            if not chunks:
+                chunks = [audio]
 
             chunk_dir = tempfile.mkdtemp(prefix="reazon_chunks_")
-            full_transcript: List[str] = []
-
+            chunks_data: list[dict] = []
+            raw_parts: list[str] = []
             try:
-                # Export all chunk files first
-                chunk_paths: List[tuple[int, str]] = []
-                for i, chunk in enumerate(chunks):
-                    if len(chunk) < 200:
+                for index, chunk in enumerate(chunks):
+                    if len(chunk) < 300:
                         continue
-                    chunk_path = os.path.join(chunk_dir, f"chunk_{i}.wav")
+                    chunk_path = os.path.join(chunk_dir, f"chunk_{index}.wav")
                     chunk.export(chunk_path, format="wav")
-                    chunk_paths.append((i, chunk_path))
-
-                # Transcribe sequentially (k2 model is NOT thread-safe)
-                for i, chunk_path in chunk_paths:
                     try:
-                        ac = audio_from_path(chunk_path)
-                        ret = transcribe(self._model, ac)
-                        if ret.text and ret.text not in ("プ", "ピッ"):
-                            full_transcript.append(ret.text)
+                        audio_content = audio_from_path(chunk_path)
+                        result = transcribe(self._model, audio_content)
+                        text = self._clean_text(result.text if result else "")
+                        if not text:
+                            continue
+                        gender = self._predict_gender(chunk_path)
+                        raw_parts.append(text)
+                        chunks_data.append({"text": text, "gender": gender})
                     except Exception as exc:
-                        logger.warning(f"Chunk {i} transcription error: {exc}")
+                        logger.warning("Chunk %s transcription error: %s", index, exc)
                     finally:
                         if os.path.exists(chunk_path):
                             os.remove(chunk_path)
             finally:
                 shutil.rmtree(chunk_dir, ignore_errors=True)
 
-            return "".join(full_transcript)
-        finally:
-            os.unlink(tmp_path)
-
-
-# ─── Gemini Analyzer ───────────────────────────────────────────────────────
-
-class GeminiAnalyzer:
-    """Gemini AI for script refinement, timestamp detection, question generation."""
-
-    def __init__(self, api_key: str):
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY is required.")
-        from google import genai
-        self._client = genai.Client(api_key=api_key)
-        self._model_name = "gemini-2.5-flash"
-
-    @property
-    def model_name(self) -> str:
-        return self._model_name
-
-    def _generate(self, contents: list) -> str:
-        response = self._client.models.generate_content(
-            model=self._model_name,
-            contents=contents,
-        )
-        return response.text.strip()
-
-    def upload_audio(self, audio_bytes: bytes, filename: str, max_retries: int = 3):
-        """Upload audio to Gemini Files API and wait for processing.
-        
-        Retries on transient connection errors (BrokenPipe, ConnectionAborted, etc.).
-        """
-        from google.genai import types
-        import mimetypes
-
-        suffix = Path(filename).suffix
-        mime_type = mimetypes.guess_type(filename)[0] or "audio/mpeg"
-
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
-        try:
-            last_exc = None
-            for attempt in range(1, max_retries + 1):
-                try:
-                    logger.info(f"Uploading audio to Gemini (attempt {attempt}/{max_retries})...")
-                    audio_file = self._client.files.upload(
-                        file=tmp_path,
-                        config=types.UploadFileConfig(
-                            display_name=filename,
-                            mime_type=mime_type,
-                        ),
-                    )
-                    while audio_file.state.name == "PROCESSING":
-                        time.sleep(2)
-                        audio_file = self._client.files.get(name=audio_file.name)
-                    if audio_file.state.name == "FAILED":
-                        raise RuntimeError("Gemini audio processing failed.")
-                    logger.info(f"Audio uploaded successfully: {audio_file.uri}")
-                    return audio_file
-                except (BrokenPipeError, ConnectionError, OSError) as exc:
-                    last_exc = exc
-                    wait = 2 ** attempt
-                    logger.warning(f"Upload attempt {attempt} failed ({exc}). Retrying in {wait}s...")
-                    time.sleep(wait)
-                except Exception as exc:
-                    raise
-            raise RuntimeError(f"Failed to upload audio after {max_retries} attempts: {last_exc}")
-        finally:
-            os.unlink(tmp_path)
-
-    def delete_audio(self, audio_file) -> None:
-        """Delete uploaded audio file from Gemini Files API to free storage."""
-        try:
-            self._client.files.delete(name=audio_file.name)
-            logger.info(f"Deleted Gemini file: {audio_file.name}")
-        except Exception as exc:
-            logger.warning(f"Failed to delete Gemini file {audio_file.name}: {exc}")
-
-    def refine_script(self, audio_file, raw_transcript: str) -> str:
-        prompt = """
-You are a professional Japanese transcriber specializing in JLPT listening tests.
-Refine the raw ASR transcript using both the AUDIO and RAW TRANSCRIPT as input.
-
-Structure for each question:
-1. [Introduction]: Mondai number + situation description + initial question
-2. [Conversation]: Dialogue with speaker labels (男：/ 女：)
-3. [Question]: Final repeated question
-
-Rules:
-- Do NOT summarize. Keep full content.
-- Add correct Japanese punctuation (。、? !)
-- Output ONLY structured text, no extra commentary.
-
-Format:
-[Question N]
-[Introduction]
-...
-[Conversation]
-男：...
-女：...
-[Question]
-...
-"""
-        return self._generate([prompt, audio_file, f"Raw Transcript:\n{raw_transcript}"])
-
-    def generate_timestamps(self, audio_file, refined_script: str) -> List[AITimestampMondai]:
-        prompt = """
-You are a JLPT listening audio analysis expert. Your task is to find the PRECISE start and end
-timestamps (in SECONDS) for each question segment in the audio file.
-
-=== JLPT AUDIO STRUCTURE (CRITICAL – READ CAREFULLY) ===
-
-A JLPT listening test follows this EXACT structure:
-
-1. [OPENING MUSIC/JINGLE]
-
-2. [MONDAI INTRO] – e.g. "もんだい１ もんだい１では、まず しつもんを きいて ください。
-   それから はなしを きいて、１から４の なかから、いちばん いい ものを えらんで ください。"
-   ⚠ This is INSTRUCTIONS ONLY – NOT a question. Do NOT include it in any question's timestamp.
-
-3. [れい (EXAMPLE)] – A sample question to show the format. Also NOT a real question. Skip it.
-
-4. [ACTUAL QUESTIONS – repeated for each question number]:
-   ─────────────────────────────────────────────────────────
-   [ding/bell sound]
-   [Number announcement: いちばん / にばん / さんばん ...]
-   [Brief situation description / context]
-   [Dialogue or monologue content]
-   [ding/bell sound]
-   [Final question repeated aloud: e.g. "おとこの人は何をしますか。"]
-   [~1-2 seconds silence / pause]
-   ─────────────────────────────────────────────────────────
-   This full block = one question segment.
-
-5. [MONDAI 2 OPENING JINGLE/MUSIC] → repeat structure from step 2 for next mondai.
-
-=== TIMESTAMP RULES ===
-
-For each QUESTION segment:
-  • start_time = the moment the FIRST bell/ding sounds that introduces this question number
-                 (i.e. the bell BEFORE いちばん, にばん, etc.)
-                 ⚠ NOT the mondai intro, NOT the れい example
-  • end_time   = after the FINAL repeated question finishes speaking + ~1 second of silence
-                 (i.e. capture the complete repeated question text, then stop)
-
-For each MONDAI block:
-  • start_time = when the mondai intro begins (e.g. "もんだい１ もんだい１では…")
-  • end_time   = a few seconds after the last question in this mondai ends
-
-=== NUMBERING ===
-
-  • question_number = sequential within its mondai, starting at 1
-  • Do NOT count the れい (example) as question 1
-  • If you detect 5 questions under Mondai 1, number them 1–5
-
-=== OUTPUT FORMAT ===
-
-First, briefly think through the audio structure silently (which time ranges contain
-mondai intros, れい, and actual questions). Then output ONLY valid JSON, no markdown fences,
-no explanation:
-
-{
-  "mondai": [
-    {
-      "mondai_number": 1,
-      "title": "もんだい 1",
-      "start_time": 3.5,
-      "end_time": 210.0,
-      "questions": [
-        {
-          "question_number": 1,
-          "start_time": 42.0,
-          "end_time": 82.5,
-          "text": "おとこのひとは このあと まず 何を しますか。"
-        },
-        {
-          "question_number": 2,
-          "start_time": 84.0,
-          "end_time": 125.3,
-          "text": "おんなのひとは どこへ 行きますか。"
-        }
-      ]
-    },
-    {
-      "mondai_number": 2,
-      "title": "もんだい 2",
-      "start_time": 212.0,
-      "end_time": 420.0,
-      "questions": [
-        {
-          "question_number": 1,
-          "start_time": 240.0,
-          "end_time": 285.0,
-          "text": "男の人は 何が 問題だと 言っていますか。"
-        }
-      ]
-    }
-  ]
-}
-"""
-        text = self._generate([prompt, audio_file, f"Refined Script:\n{refined_script}"])
-        data = json.loads(_strip_json_markdown(text))
-
-        return [
-            AITimestampMondai(
-                mondai_number=m["mondai_number"],
-                title=m["title"],
-                start_time=float(m["start_time"]),
-                end_time=float(m["end_time"]),
-                questions=[AITimestampQuestion(**q) for q in m.get("questions", [])],
+            raw_text = "".join(raw_parts)
+            formatted_text = _format_jlpt_master(chunks_data) or raw_text
+            introduction, script_text, question_texts, spoken_number = _parse_formatted_segment(
+                formatted_text,
+                raw_text,
             )
-            for m in data.get("mondai", [])
-        ]
+            return {
+                "raw_text": raw_text,
+                "formatted_text": formatted_text,
+                "introduction": introduction,
+                "script_text": script_text,
+                "question_texts": question_texts,
+                "spoken_question_number": spoken_number,
+            }
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
-    def generate_questions(
-        self,
-        audio_file,
-        refined_script: str,
-        jlpt_level: str,
-        mondai_config: Optional[list] = None,
-    ) -> List[AIQuestion]:
-        if mondai_config:
-            lines = [f"- Mondai {m.mondai_id}: {m.count} câu hỏi" for m in mondai_config]
-            mondai_instruction = "Generate questions for:\n" + "\n".join(lines)
-        else:
-            mondai_instruction = "Generate appropriate number of questions per mondai."
-
-        prompt = f"""
-You are a JLPT {jlpt_level} exam creator.
-Based on the REFINED SCRIPT and AUDIO, generate multiple-choice listening questions.
-
-{mondai_instruction}
-
-For each question:
-- mondai_group: "Mondai 1", "Mondai 2", etc.
-- question_number: sequential within mondai
-- introduction: brief situation setup (Japanese)
-- script_text: the conversation or monologue text (Japanese)
-- question_text: the question asked (Japanese)
-- answers: exactly 4 options (A/B/C/D), one is_correct=true
-
-Output ONLY valid JSON array (no markdown):
-[
-  {{
-    "mondai_group": "Mondai 1",
-    "question_number": 1,
-    "introduction": "...",
-    "script_text": "男：...\\n女：...",
-    "question_text": "女の人は何をしますか。",
-    "answers": [
-      {{"label": "A", "content": "...", "is_correct": false}},
-      {{"label": "B", "content": "...", "is_correct": true}},
-      {{"label": "C", "content": "...", "is_correct": false}},
-      {{"label": "D", "content": "...", "is_correct": false}}
-    ]
-  }}
-]
-"""
-        text = self._generate([prompt, audio_file, f"Refined Script:\n{refined_script}"])
-        raw_questions = json.loads(_strip_json_markdown(text))
-
-        return [
-            AIQuestion(
-                mondai_group=q["mondai_group"],
-                question_number=q["question_number"],
-                introduction=q.get("introduction"),
-                script_text=q.get("script_text", ""),
-                question_text=q.get("question_text", ""),
-                answers=[AIQuestionOption(**a) for a in q.get("answers", [])],
-            )
-            for q in raw_questions
-        ]
-
-
-# ─── Main Orchestrator Service ──────────────────────────────────────────────
 
 class AIExamService:
-    """
-    Optimized hybrid pipeline:
-
-    Phase 1 (parallel):  ReazonSpeech ASR  ║  Gemini audio upload
-    Phase 2 (parallel):  Gemini refine     ║  Gemini timestamps
-    Phase 3 (sequential): Gemini questions (needs refined_script)
-    Phase 4: Build audio URLs from timestamp map
-    """
+    """Split by bell first, then transcribe each cut with local ReazonSpeech formatting."""
 
     def __init__(self):
-        api_key = settings.GOOGLE_API_KEY
+        self._splitter = BellAudioSplitter()
         self._reazon = ReazonTranscriber()
         try:
             self._reazon._load_model()
-        except Exception as e:
-            logger.warning(f"Failed to eagerly load ReazonSpeech model: {e}")
-        self._gemini = GeminiAnalyzer(api_key) if api_key else None
-
-    # ── sync wrappers so we can submit to ThreadPoolExecutor ──────────────
-
-    def _run_transcribe(self, audio_bytes: bytes, suffix: str) -> str:
-        try:
-            return self._reazon.transcribe(audio_bytes, suffix=suffix)
-        except RuntimeError as e:
-            logger.warning(f"ReazonSpeech unavailable, skipping ASR: {e}")
-            return "(ReazonSpeech not available – using Gemini only)"
-
-    def _run_upload(self, audio_bytes: bytes, filename: str):
-        return self._gemini.upload_audio(audio_bytes, filename)
-
-    def _run_refine(self, audio_file, raw_transcript: str) -> str:
-        return self._gemini.refine_script(audio_file, raw_transcript)
-
-    def _run_timestamps(self, audio_file, refined_script: str):
-        try:
-            return self._gemini.generate_timestamps(audio_file, refined_script)
         except Exception as exc:
-            logger.warning(f"Timestamp generation failed: {exc}")
-            return None
-
-    # ── async orchestration ───────────────────────────────────────────────
-
-    async def _generate_async(
-        self,
-        audio_bytes: bytes,
-        filename: str,
-        jlpt_level: str,
-        mondai_config: Optional[list],
-        cloudinary_public_id: Optional[str],
-        cloudinary_format: str,
-    ) -> AIExamResult:
-
-        loop = asyncio.get_event_loop()
-        suffix = Path(filename).suffix
-
-        # ── Phase 1: ASR + Upload in parallel ────────────────────────────
-        logger.info("Phase 1: ReazonSpeech ASR + Gemini upload (parallel)...")
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            raw_transcript, audio_file = await asyncio.gather(
-                loop.run_in_executor(pool, self._run_transcribe, audio_bytes, suffix),
-                loop.run_in_executor(pool, self._run_upload, audio_bytes, filename),
-            )
-        logger.info(f"Raw transcript: {len(raw_transcript)} chars | audio uploaded: {audio_file.name}")
-
-        # ── Phase 2a: Refine script (needed before timestamps) ───────────
-        logger.info("Phase 2a: Refining script...")
-        refined_script = await loop.run_in_executor(
-            None, self._run_refine, audio_file, raw_transcript
-        )
-        logger.info(f"Refined script: {len(refined_script)} chars")
-
-        # ── Phase 2b + 3: Timestamps + Questions in parallel ─────────────
-        # Both use refined_script → timestamps now has structured context
-        logger.info("Phase 2b+3: Timestamps + Questions (parallel, both use refined script)...")
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            timestamps, questions = await asyncio.gather(
-                loop.run_in_executor(pool, self._run_timestamps, audio_file, refined_script),
-                loop.run_in_executor(
-                    pool, self._gemini.generate_questions,
-                    audio_file, refined_script, jlpt_level, mondai_config,
-                ),
-            )
-
-        # ── Phase 4: Attach audio URLs ────────────────────────────────────
-        if timestamps and cloudinary_public_id:
-            self._attach_audio_urls(questions, timestamps, cloudinary_public_id, cloudinary_format)
-
-        # ── Cleanup: delete uploaded Gemini file ──────────────────────────
-        self._gemini.delete_audio(audio_file)
-
-        return AIExamResult(
-            raw_transcript=raw_transcript,
-            refined_script=refined_script,
-            timestamps=timestamps,
-            questions=questions,
-        )
-
-    # ── public entry point ────────────────────────────────────────────────
+            logger.warning("Failed to eagerly load ReazonSpeech model: %s", exc)
 
     def generate(
         self,
@@ -492,80 +492,250 @@ class AIExamService:
         mondai_config: Optional[list] = None,
         cloudinary_public_id: Optional[str] = None,
         cloudinary_format: Optional[str] = "mp3",
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> AIExamResult:
-        if not self._gemini:
-            raise RuntimeError("GOOGLE_API_KEY not configured.")
+        self._notify(progress_callback, "Step 2/7: Detecting bell timestamps...")
+        split_segments = self._splitter.split_audio(audio_bytes, suffix=Path(filename).suffix or ".mp3")
+        logger.info("Split audio into %s bell-based segments.", len(split_segments))
 
-        return asyncio.run(
-            self._generate_async(
-                audio_bytes, filename, jlpt_level,
-                mondai_config, cloudinary_public_id, cloudinary_format,
+        self._notify(progress_callback, "Step 3/7: Cutting question audio with PyDub...")
+        split_segments = list(split_segments)
+
+        self._notify(progress_callback, "Step 4/7: ReazonSpeech transcribing split audio...")
+        for segment in split_segments:
+            transcript_result = self._reazon.transcribe(segment.audio_bytes, suffix=".wav")
+            segment.transcript = transcript_result["raw_text"]
+            segment.refined_transcript = transcript_result["formatted_text"]
+            segment.introduction = transcript_result["introduction"]
+            segment.script_text = transcript_result["script_text"]
+            segment.question_texts = transcript_result["question_texts"]
+            segment.spoken_question_number = transcript_result["spoken_question_number"]
+
+        self._notify(progress_callback, "Step 5/7: Formatting scripts with local Reazon rules...")
+        structured_segments = self._build_structured_segments(split_segments)
+
+        self._notify(progress_callback, "Step 6/7: Building local question drafts...")
+        questions = self._build_questions(structured_segments, split_segments)
+        timestamps = self._build_timestamps(questions)
+        refined_script = self._build_refined_script(structured_segments)
+        raw_transcript = self._build_raw_transcript(split_segments)
+        result_split_segments = [
+            AISplitSegment(
+                segment_index=segment.segment_index,
+                file_name=segment.file_name,
+                start_time=segment.start_ms / 1000.0,
+                end_time=segment.end_ms / 1000.0,
+                transcript=segment.transcript,
+                refined_transcript=segment.refined_transcript or None,
             )
+            for segment in split_segments
+        ]
+
+        self._notify(progress_callback, "Step 7/7: Attaching clipped audio URLs...")
+        if cloudinary_public_id:
+            self._attach_audio_urls(questions, cloudinary_public_id, cloudinary_format or "mp3")
+
+        return AIExamResult(
+            raw_transcript=raw_transcript,
+            refined_script=refined_script,
+            split_segments=result_split_segments,
+            timestamps=timestamps,
+            questions=questions,
         )
 
     @property
     def model_name(self) -> str:
-        return self._gemini.model_name if self._gemini else "unconfigured"
+        return "reazonspeech-local"
 
     @property
     def pipeline_version(self) -> str:
         return PIPELINE_VERSION
 
-    # ── helpers ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _notify(progress_callback: Optional[Callable[[str], None]], message: str) -> None:
+        if progress_callback:
+            progress_callback(message)
+
+    @staticmethod
+    def _build_structured_segments(split_segments: Sequence[SplitAudioChunk]) -> list[StructuredSegment]:
+        structured: list[StructuredSegment] = []
+        current_mondai = 1
+        last_question_number = 0
+
+        for segment in split_segments:
+            question_text = (segment.question_texts[-1] if segment.question_texts else "")
+            base_question_number = segment.spoken_question_number
+
+            if base_question_number is None:
+                base_question_number = last_question_number + 1 if last_question_number else 1
+            elif structured and base_question_number == 1 and last_question_number >= 1:
+                if current_mondai < MAX_MONDAI:
+                    current_mondai += 1
+                    last_question_number = 0
+                else:
+                    base_question_number = last_question_number + 1
+
+            structured.append(
+                StructuredSegment(
+                    source_segment_index=segment.segment_index,
+                    source_question_index=1,
+                    mondai_group=f"Mondai {current_mondai}",
+                    question_number=base_question_number,
+                    introduction=segment.introduction,
+                    script_text=segment.script_text or segment.refined_transcript or segment.transcript,
+                    question_text=question_text,
+                    refined_transcript=segment.refined_transcript or segment.transcript,
+                )
+            )
+
+            last_question_number = base_question_number
+
+        return structured
+
+    @staticmethod
+    def _build_placeholder_answers() -> list[AIQuestionOption]:
+        return [
+            AIQuestionOption(label="A", content="", is_correct=False),
+            AIQuestionOption(label="B", content="", is_correct=False),
+            AIQuestionOption(label="C", content="", is_correct=False),
+            AIQuestionOption(label="D", content="", is_correct=False),
+        ]
+
+    @staticmethod
+    def _build_raw_transcript(split_segments: Sequence[SplitAudioChunk]) -> str:
+        lines = []
+        for segment in split_segments:
+            lines.append(
+                f"[Segment {segment.segment_index:02d}] "
+                f"{_format_seconds(segment.start_ms / 1000.0)} -> {_format_seconds(segment.end_ms / 1000.0)}"
+            )
+            lines.append(segment.transcript or "(empty)")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _build_refined_script(structured_segments: Sequence[StructuredSegment]) -> str:
+        grouped: "OrderedDict[str, list[StructuredSegment]]" = OrderedDict()
+        for segment in structured_segments:
+            grouped.setdefault(segment.mondai_group, []).append(segment)
+
+        blocks: list[str] = []
+        for mondai_group, segments in grouped.items():
+            blocks.append(f"[{mondai_group}]")
+            for segment in segments:
+                blocks.append(f"[Question {segment.question_number}]")
+                if segment.introduction:
+                    blocks.append("[Introduction]")
+                    blocks.append(segment.introduction)
+                if segment.script_text:
+                    blocks.append("[Conversation]")
+                    blocks.append(segment.script_text)
+                if segment.question_text:
+                    blocks.append("[Question]")
+                    blocks.append(segment.question_text)
+                blocks.append("")
+        return "\n".join(blocks).strip()
+
+    @staticmethod
+    def _build_questions(
+        structured_segments: Sequence[StructuredSegment],
+        split_segments: Sequence[SplitAudioChunk],
+    ) -> list[AIQuestion]:
+        segment_map = {segment.segment_index: segment for segment in split_segments}
+        questions: list[AIQuestion] = []
+        for structured in structured_segments:
+            source = segment_map[structured.source_segment_index]
+            questions.append(
+                AIQuestion(
+                    mondai_group=structured.mondai_group,
+                    question_number=structured.question_number,
+                    introduction=structured.introduction,
+                    script_text=structured.script_text or structured.refined_transcript or source.transcript,
+                    question_text=structured.question_text,
+                    source_segment_index=structured.source_segment_index,
+                    source_question_index=structured.source_question_index,
+                    source_start_time=source.start_ms / 1000.0,
+                    source_end_time=source.end_ms / 1000.0,
+                    source_transcript=source.transcript,
+                    answers=AIExamService._build_placeholder_answers(),
+                )
+            )
+        return questions
+
+    @staticmethod
+    def _build_timestamps(questions: Sequence[AIQuestion]) -> list[AITimestampMondai]:
+        grouped: "OrderedDict[str, list[AIQuestion]]" = OrderedDict()
+        for question in questions:
+            grouped.setdefault(question.mondai_group, []).append(question)
+
+        timestamps: list[AITimestampMondai] = []
+        fallback_mondai_number = 0
+        for group_label, group_questions in grouped.items():
+            match = re.search(r"(\d+)", group_label or "")
+            if match:
+                mondai_number = int(match.group(1))
+            else:
+                fallback_mondai_number += 1
+                mondai_number = fallback_mondai_number
+
+            valid_questions = [
+                question
+                for question in group_questions
+                if question.source_start_time is not None and question.source_end_time is not None
+            ]
+            if not valid_questions:
+                continue
+
+            timestamps.append(
+                AITimestampMondai(
+                    mondai_number=mondai_number,
+                    title=group_label.lower(),
+                    start_time=min(question.source_start_time for question in valid_questions),
+                    end_time=max(question.source_end_time for question in valid_questions),
+                    questions=[
+                        AITimestampQuestion(
+                            question_number=question.question_number,
+                            start_time=float(question.source_start_time),
+                            end_time=float(question.source_end_time),
+                            text=question.question_text or question.source_transcript,
+                        )
+                        for question in valid_questions
+                    ],
+                )
+            )
+        return timestamps
 
     @staticmethod
     def _attach_audio_urls(
-        questions: List[AIQuestion],
-        timestamps: List[AITimestampMondai],
+        questions: Sequence[AIQuestion],
         cloudinary_public_id: str,
         cloudinary_format: str,
     ) -> None:
         import math
-        import re
         import cloudinary.utils
 
-        def _extract_number(s: str) -> int:
-            match = re.search(r"\d+", s)
-            return int(match.group()) if match else 0
-
-        # Build per-mondai lookup: mondai_number → sorted list of (question_number, start, end)
-        mondai_qs: dict[int, list] = {}
-        for m in timestamps:
-            mondai_qs[m.mondai_number] = sorted(
-                [(q.question_number, q.start_time, q.end_time) for q in m.questions],
-                key=lambda x: x[0],
-            )
-
-        def _find_timestamp(mondai_num: int, q_num: int):
-            """Exact match first, then fallback to closest question_number in same mondai."""
-            candidates = mondai_qs.get(mondai_num, [])
-            if not candidates:
-                return None
-            # Exact match
-            for qn, st, et in candidates:
-                if qn == q_num:
-                    return st, et
-            # Fuzzy: pick closest by question_number (handles off-by-one from Gemini)
-            closest = min(candidates, key=lambda x: abs(x[0] - q_num))
-            logger.warning(
-                f"Q({mondai_num},{q_num}): no exact timestamp, using closest Q{closest[0]}"
-            )
-            return closest[1], closest[2]
-
-        for q in questions:
-            mondai_num = _extract_number(q.mondai_group)
-            result = _find_timestamp(mondai_num, q.question_number)
-            if result is None:
-                logger.warning(f"Q({mondai_num},{q.question_number}): no timestamp found, audio_url will be null")
+        for question in questions:
+            if question.source_start_time is None or question.source_end_time is None:
+                logger.warning(
+                    "Q(%s,%s): missing source timestamps, audio_url will be empty",
+                    question.mondai_group,
+                    question.question_number,
+                )
                 continue
-            st, et = result
+
             audio_url, _ = cloudinary.utils.cloudinary_url(
                 cloudinary_public_id,
                 resource_type="video",
                 format=cloudinary_format,
-                start_offset=math.floor(st * 10) / 10.0,
-                end_offset=math.ceil(et * 10) / 10.0,
+                start_offset=math.floor(question.source_start_time * 10) / 10.0,
+                end_offset=math.ceil(question.source_end_time * 10) / 10.0,
                 secure=True,
             )
-            q.audio_url = audio_url
-            logger.info(f"Q({mondai_num},{q.question_number}): audio [{st:.1f}s → {et:.1f}s]")
+            question.audio_url = audio_url
+            logger.info(
+                "Q(%s,%s): audio [%.1fs -> %.1fs]",
+                question.mondai_group,
+                question.question_number,
+                question.source_start_time,
+                question.source_end_time,
+            )

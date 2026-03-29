@@ -93,7 +93,7 @@ async def _run_pipeline(
     jlpt_level: str,
     mondai_config: Optional[list],
 ):
-    """Background task: run hybrid AI pipeline and update job store."""
+    """Background task: run split-first AI pipeline and update job store."""
     from app.shared.upload import upload_audio_bytes
     job = _jobs.get(job_id)
     if not job:
@@ -102,7 +102,12 @@ async def _run_pipeline(
     try:
         job.status = "processing"
 
-        job.progress_message = "Step 1/6: Uploading raw audio to Cloudinary..."
+        def set_progress(message: str) -> None:
+            current = _jobs.get(job_id)
+            if current:
+                current.progress_message = message
+
+        set_progress("Step 1/7: Uploading raw audio to Cloudinary...")
         cloudinary_res = await upload_audio_bytes(
             audio_bytes,
             filename,
@@ -111,10 +116,7 @@ async def _run_pipeline(
         public_id = cloudinary_res.get("public_id")
         fmt = cloudinary_res.get("format", "mp3")
 
-        job.progress_message = "Step 2/6: ReazonSpeech transcribing audio..."
         svc = get_service()
-
-        job.progress_message = "Step 3/6: Uploading audio to Gemini..."
 
         import asyncio
         result: AIExamResult = await asyncio.to_thread(
@@ -125,6 +127,7 @@ async def _run_pipeline(
             mondai_config,
             public_id,
             fmt,
+            set_progress,
         )
 
         async with AsyncSessionLocal() as db:
@@ -197,7 +200,7 @@ async def generate_exam_from_audio(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Upload a full JLPT audio file → run hybrid ReazonSpeech + Gemini pipeline asynchronously.
+    Upload a full JLPT audio file → split by bell → transcribe each clip → generate exam asynchronously.
     Returns a `job_id` to poll for status.
     """
     if not file.content_type or not (
