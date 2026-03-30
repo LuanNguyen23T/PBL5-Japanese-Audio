@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  X, Headphones, Clock, BookOpen, Layers, Loader2,
-  Trash2, Save, Brain, AlertCircle, CheckCircle2, Play, Pause,
-  Edit3, FileText, ChevronLeft, ExternalLink
+  X, Headphones, Clock, Layers, Loader2,
+  Trash2, Save, Brain, AlertCircle, Play, Pause,
+  Edit3, FileText, ChevronLeft, ExternalLink, Plus
 } from 'lucide-react'
 import { examClient, ExamResponse, QuestionResponse, AnswerResponse } from './api/examClient'
 import { toast } from '@/hooks/use-toast'
@@ -184,15 +184,22 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
       const updated = await examClient.updateQuestion(q.question_id, questionPatch)
       // Save answers if changed
       if (patchAnswers) {
+        const removedAnswers = q.answers.filter(oa => !patchAnswers.find(pa => pa.answer_id === oa.answer_id))
+        await Promise.all(removedAnswers.map(a => examClient.deleteAnswer(a.answer_id)))
+        
         await Promise.all(
-          patchAnswers.map(a =>
+          patchAnswers.map((a, i) =>
             a.answer_id
-              ? examClient.updateAnswer(a.answer_id, { content: a.content, is_correct: a.is_correct, order_index: a.order_index })
-              : Promise.resolve()
+              ? examClient.updateAnswer(a.answer_id, { content: a.content, is_correct: a.is_correct, order_index: i })
+              : examClient.createAnswer({ question_id: q.question_id, content: a.content || '', is_correct: !!a.is_correct, order_index: i })
           )
         )
+        const allQs = await examClient.getExamQuestions(exam.exam_id)
+        const refreshedQ = allQs.find(x => x.question_id === q.question_id)
+        setQuestions(prev => prev.map(x => x.question_id === q.question_id ? (refreshedQ || x) : x))
+      } else {
+        setQuestions(prev => prev.map(x => x.question_id === q.question_id ? { ...x, ...updated } : x))
       }
-      setQuestions(prev => prev.map(x => x.question_id === q.question_id ? { ...x, ...updated, answers: patchAnswers ?? x.answers } : x))
       setEditedQuestions(prev => { const n = { ...prev }; delete n[q.question_id]; return n })
       toast({ title: 'Đã lưu câu hỏi' })
     } catch (e: any) {
@@ -216,6 +223,77 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
     } finally {
       setDeletingQ(null)
     }
+  }
+
+  const handleAddQuestion = async (group: string) => {
+    const questionsInGroup = questions.filter(q => q.mondai_group === group)
+    const nums = questionsInGroup.map(q => q.question_number || 1).sort((a, b) => a - b)
+    
+    let nextNum = 1
+    if (nums.length > 0) {
+      if (nums[0] > 1) {
+        nextNum = 1
+      } else {
+        nextNum = nums[nums.length - 1] + 1
+        for (let i = 0; i < nums.length - 1; i++) {
+          if (nums[i + 1] - nums[i] > 1) {
+            nextNum = nums[i] + 1
+            break
+          }
+        }
+      }
+    }
+
+    try {
+      const newQ = await examClient.createQuestion({
+        exam_id: exam.exam_id,
+        mondai_group: group,
+        question_number: nextNum,
+        question_text: '',
+        explanation: ''
+      })
+      
+      const newAnswers = await Promise.all([0, 1, 2, 3].map(i => 
+        examClient.createAnswer({
+          question_id: newQ.question_id,
+          content: '',
+          is_correct: i === 0,
+          order_index: i
+        })
+      ))
+      
+      const fullQ = { ...newQ, answers: newAnswers }
+      
+      setQuestions(prev => {
+        const next = [...prev, fullQ]
+        return next.sort((a, b) => {
+          if (a.mondai_group !== b.mondai_group) return (a.mondai_group || '').localeCompare(b.mondai_group || '')
+          return (a.question_number || 0) - (b.question_number || 0)
+        })
+      })
+      setActiveQId(newQ.question_id)
+      toast({ title: 'Đã thêm câu hỏi mới' })
+    } catch (e: any) {
+      toast({ title: 'Lỗi', description: e.message, variant: 'destructive' })
+    }
+  }
+
+  const updateAnswerCount = (qId: string, count: 3 | 4) => {
+    const q = questions.find(x => x.question_id === qId)!
+    const base = editedQuestions[qId] ?? {}
+    const currentAnswers = base.answers ?? q.answers
+
+    const nextAnswers = [...currentAnswers]
+    while (nextAnswers.length > count) {
+      nextAnswers.pop()
+    }
+    while (nextAnswers.length < count) {
+      nextAnswers.push({ content: '', is_correct: false, answer_id: undefined } as any)
+    }
+    if (nextAnswers.length > 0 && !nextAnswers.some(a => a.is_correct)) {
+      nextAnswers[0].is_correct = true
+    }
+    patchQ(qId, { answers: nextAnswers })
   }
 
   // ── Derived data ────────────────────────────────────────────────────────────
@@ -249,17 +327,13 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
               placeholder="Tiêu đề đề thi"
             />
             <div className="flex items-center gap-4 flex-wrap">
-              <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <BookOpen className="w-3.5 h-3.5" />
-                {questions.length} câu hỏi
-              </span>
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <Clock className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300 font-medium">
+                <Clock className="w-4 h-4 text-blue-500" />
                 <input
                   type="number"
                   value={editTimeLimit}
                   onChange={e => { setEditTimeLimit(parseInt(e.target.value) || 0); setHeaderDirty(true) }}
-                  className="w-12 text-center bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-blue-400 focus:outline-none text-xs"
+                  className="w-14 text-center bg-transparent border-b border-slate-300 hover:border-slate-400 dark:border-slate-600 focus:border-blue-500 focus:outline-none text-sm transition-colors"
                 />
                 <span>phút</span>
               </div>
@@ -372,9 +446,28 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                             </button>
                           )
                         })}
+                        <button
+                          onClick={() => handleAddQuestion(group)}
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
+                          title="Thêm câu hỏi mới"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   ))}
+
+                  <button
+                    onClick={() => {
+                      const newGroup = prompt('Nhập tên phần thi mới (ví dụ: Mondai 1):');
+                      if (newGroup && newGroup.trim()) {
+                        handleAddQuestion(newGroup.trim());
+                      }
+                    }}
+                    className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 font-medium hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:border-blue-400 hover:text-blue-600 transition-colors text-sm"
+                  >
+                    <Plus className="w-4 h-4" /> Thêm phần thi mới
+                  </button>
                 </div>
               </div>
 
@@ -387,9 +480,18 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                       <div className="flex items-center gap-2">
                         <Edit3 className="w-4 h-4 text-slate-500" />
                         <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Hiệu đính chi tiết</h2>
-                        <span className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-md">
-                          {activeQ.mondai_group} – Câu {activeQ.question_number}
-                        </span>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <span className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 pl-2.5 pr-1 py-1 rounded-md flex items-center gap-1.5 border border-slate-200 dark:border-slate-600">
+                            {activeQ.mondai_group}
+                            <span className="text-slate-300 dark:text-slate-500 mx-0.5">-</span>
+                            Câu
+                            <div className="flex items-center gap-0.5">
+                              <button onClick={() => patchQ(activeQ.question_id, { question_number: Math.max(1, (activeEdited.question_number || 1) - 1) })} className="w-5 h-5 flex items-center justify-center bg-slate-200 dark:bg-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-300 font-bold select-none leading-none">-</button>
+                              <span className="w-6 text-center">{activeEdited.question_number}</span>
+                              <button onClick={() => patchQ(activeQ.question_id, { question_number: (activeEdited.question_number || 1) + 1 })} className="w-5 h-5 flex items-center justify-center bg-slate-200 dark:bg-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-300 font-bold select-none leading-none">+</button>
+                            </div>
+                          </span>
+                        </div>
                         {isDirtyQ(activeQ.question_id) && (
                           <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-700">
                             Chưa lưu
@@ -456,7 +558,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                         )}
                       </div>
 
-                      {/* Question Text */}
+                      {/* Question Text: Script */}
                       <div>
                         <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-slate-500" />
@@ -471,11 +573,11 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                         />
                       </div>
 
-                      {/* Question Text */}
+                      {/* Question Text: Content */}
                       <div>
                         <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-slate-500" />
-                          Nội dung câu hỏi
+                          Nội dung câu hỏi (Question)
                         </label>
                         <textarea
                           value={activeEdited.question_text ?? ''}
@@ -488,9 +590,31 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
 
                       {/* Answers */}
                       <div>
-                        <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">
-                          Đáp án lựa chọn
-                        </label>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <label className="block text-sm font-bold text-slate-800 dark:text-slate-200">
+                            Đáp án lựa chọn (Choices)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Số đáp án</span>
+                            {[3, 4].map((count) => {
+                              const isActive = (activeEdited.answers ?? []).length === count;
+                              return (
+                                <button
+                                  key={count}
+                                  type="button"
+                                  onClick={() => updateAnswerCount(activeQ.question_id, count as 3 | 4)}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                    isActive
+                                      ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                                  }`}
+                                >
+                                  {count} đáp án
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <div className="space-y-2.5">
                           {(activeEdited.answers ?? []).map((a, ai) => (
                             <div key={a.answer_id ?? ai} className="flex items-center gap-3 group/answer">
@@ -525,9 +649,6 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                                   />
                                 </div>
                               </div>
-                              {a.is_correct && (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                              )}
                             </div>
                           ))}
                         </div>
