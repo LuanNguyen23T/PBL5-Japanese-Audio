@@ -355,6 +355,9 @@ interface Step3Props {
 
 function Step3Review({ editableQuestions, setEditableQuestions, level }: Step3Props) {
   const [activeQIdx, setActiveQIdx] = useState<number>(0)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [draggingImage, setDraggingImage] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
 
   const updateQuestion = (idx: number, patch: Partial<AIQuestion>) => {
     setEditableQuestions(editableQuestions.map((q, i) => i === idx ? { ...q, ...patch } : q))
@@ -368,6 +371,31 @@ function Step3Review({ editableQuestions, setEditableQuestions, level }: Step3Pr
         : i === aIdx ? { ...a, ...patch } : a
     )
     updateQuestion(qIdx, { answers })
+  }
+
+  const handleImageUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+        toast({ title: 'Lỗi file', description: 'Chỉ hỗ trợ file hình ảnh', variant: 'destructive' })
+        return
+    }
+    setUploadingImage(true)
+    try {
+        const url = await examClient.uploadImage(file)
+        updateQuestion(activeQIdx, { image_url: url })
+        toast({ title: 'Thành công', description: 'Đã tải ảnh lên' })
+    } catch (err: any) {
+        toast({ title: 'Lỗi tải ảnh', description: err.message || 'Lỗi không xác định', variant: 'destructive' })
+    } finally {
+        setUploadingImage(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDraggingImage(true); }
+  const handleDragLeave = () => setDraggingImage(false)
+  const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault()
+      setDraggingImage(false)
+      if (e.dataTransfer.files?.[0]) handleImageUpload(e.dataTransfer.files[0])
   }
 
   const groupedQuestions = editableQuestions.reduce((acc, q, idx) => {
@@ -543,7 +571,14 @@ function Step3Review({ editableQuestions, setEditableQuestions, level }: Step3Pr
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-900/30">
+                  <div 
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`flex flex-col items-center gap-4 py-6 border-2 rounded-xl transition-colors ${
+                      draggingImage ? 'border-violet-400 bg-violet-50 dark:bg-violet-900/20' : 'border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30'
+                    }`}
+                  >
                     <AIImageGenerateButton
                       payload={{
                         question_id: `ai_q_${activeQIdx}`,
@@ -556,14 +591,29 @@ function Step3Review({ editableQuestions, setEditableQuestions, level }: Step3Pr
                     />
                     <div className="w-full relative flex items-center justify-center py-2 max-w-[200px]">
                       <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200 dark:border-slate-700"></div></div>
-                      <span className="relative bg-slate-50/50 dark:bg-slate-900/30 px-3 text-xs text-slate-400 font-medium">HOẶC</span>
+                      <span className="relative px-3 text-xs text-slate-400 font-medium bg-slate-50 dark:-bg-slate-900/40">HOẶC</span>
                     </div>
-                    <div className="flex flex-col items-center justify-center cursor-pointer group">
-                      <ImageIcon className="w-6 h-6 text-slate-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                    <div 
+                      onClick={() => !uploadingImage && imageInputRef.current?.click()}
+                      className={`flex flex-col items-center justify-center ${uploadingImage ? 'cursor-not-allowed opacity-70' : 'cursor-pointer group'}`}
+                    >
+                      {uploadingImage ? (
+                        <Loader2 className="w-6 h-6 text-slate-400 animate-spin mb-2" />
+                      ) : (
+                        <ImageIcon className="w-6 h-6 text-slate-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                      )}
                       <p className="text-sm text-slate-500 text-center">
-                        <span className="text-blue-500 font-semibold">Tải lên tĩnh (Sắp hoàn thiện)</span>
+                        <span className="text-blue-500 font-semibold">{uploadingImage ? 'Đang tải lên...' : 'Tải lên từ máy tính'}</span>
+                        {!uploadingImage && ' hoặc kéo thả'}
                       </p>
                     </div>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      ref={imageInputRef} 
+                      onChange={e => e.target.files?.[0] && handleImageUpload(e.target.files[0])} 
+                    />
                   </div>
                 )}
               </div>
