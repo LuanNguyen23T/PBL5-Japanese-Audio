@@ -6,6 +6,10 @@ class ImageOptionGenerate(BaseModel):
     label: str  # 1, 2, 3, 4
     description: str # Prompt tiếng Anh
 
+class VisualPlanResponse(BaseModel):
+    master_setting: str
+    options: List[ImageOptionGenerate]
+
 class AIImageTaskRequest(BaseModel):
     question_id: str
     script_text: str
