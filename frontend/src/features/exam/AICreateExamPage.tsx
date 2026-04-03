@@ -9,6 +9,7 @@ import {
 import { aiExamClient, AIJobStatus, AIQuestion, AIExamResult, AIQuestionOption } from './api/examClient'
 import { examClient } from './api/examClient'
 import { toast } from '@/hooks/use-toast'
+import { AIImageGenerateButton } from '../ai-image/components/AIImageGenerateButton'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -796,8 +797,8 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                             type="button"
                             onClick={() => updateAnswerCount(activeQIdx, count as 3 | 4)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${isActive
-                                ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
-                                : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
+                              : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
                               }`}
                           >
                             {count} đáp án
