@@ -233,11 +233,13 @@ interface Step1Props {
   setLevel: (l: Level) => void
   title: string
   setTitle: (t: string) => void
+  description: string
+  setDescription: (t: string) => void
   onNext: () => Promise<void>
   loading: boolean
 }
 
-function Step1({ audioFile, setAudioFile, level, setLevel, title, setTitle, onNext, loading }: Step1Props) {
+function Step1({ audioFile, setAudioFile, level, setLevel, title, setTitle, description, setDescription, onNext, loading }: Step1Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -351,6 +353,19 @@ function Step1({ audioFile, setAudioFile, level, setLevel, title, setTitle, onNe
             onChange={e => setTitle(e.target.value)}
             placeholder={`Ví dụ: Luyện nghe ${level} – Đề số 01`}
             className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-shadow" />
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Mô tả đề thi</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Mô tả ngắn về đề thi..."
+            className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none transition-shadow"
+          />
         </div>
       </div>
 
@@ -972,11 +987,12 @@ interface Step4Props {
   questions: AIQuestion[]
   level: Level
   title: string
+  description: string
   draftId: string
   onBack: () => void
 }
 
-function Step4Save({ questions, level, title, draftId, onBack }: Step4Props) {
+function Step4Save({ questions, level, title, description, draftId, onBack }: Step4Props) {
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -991,6 +1007,7 @@ function Step4Save({ questions, level, title, draftId, onBack }: Step4Props) {
       // Create exam draft
       const exam = await examClient.createExam({
         title: `[${level}] ${title}`,
+        description,
         time_limit: 60,
       })
 
@@ -1217,6 +1234,7 @@ export default function AICreateExamPage() {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [level, setLevel] = useState<Level>('N2')
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
 
   // Step 2 state
@@ -1267,6 +1285,7 @@ export default function AICreateExamPage() {
       if (draftId) await examClient.deleteExam(draftId).catch(() => { })
       const exam = await examClient.createExam({
         title: `[Nháp] [${level}] ${title}`,
+        description,
         time_limit: 60,
       })
       for (const q of editableQuestions) {
@@ -1355,6 +1374,8 @@ export default function AICreateExamPage() {
             setLevel={setLevel}
             title={title}
             setTitle={setTitle}
+            description={description}
+            setDescription={setDescription}
             onNext={handleStartAI}
             loading={loading}
           />
@@ -1397,6 +1418,7 @@ export default function AICreateExamPage() {
             questions={editableQuestions}
             level={level}
             title={title}
+            description={description}
             draftId={draftId}
             onBack={() => setStep(3)}
           />

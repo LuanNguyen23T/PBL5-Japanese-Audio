@@ -186,6 +186,7 @@ class TestService:
             exam_id=exam.exam_id,
             title=exam.title,
             description=exam.description,
+            audio_mode=getattr(exam, "audio_mode", "practice") or "practice",
             time_limit=exam.time_limit,
             is_published=exam.is_published,
             audio_url=audio_url,

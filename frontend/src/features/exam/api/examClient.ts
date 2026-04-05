@@ -16,6 +16,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export interface ExamPayload {
   title: string;
   description?: string;
+  audio_mode?: 'practice' | 'simulation';
   time_limit?: number;
   audio_id?: string;
 }
@@ -24,6 +25,7 @@ export interface ExamResponse {
   exam_id: string;
   title: string;
   description?: string;
+  audio_mode?: 'practice' | 'simulation';
   time_limit?: number;
   current_step: number;
   is_published: boolean;

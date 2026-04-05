@@ -10,7 +10,6 @@ import { toast } from '@/hooks/use-toast'
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type Level = 'N5' | 'N4' | 'N3' | 'N2' | 'N1'
-
 interface MondaiConfig {
   id: number
   label: string
@@ -127,6 +126,8 @@ interface Step1Props {
   setLevel: (l: Level) => void
   title: string
   setTitle: (t: string) => void
+  description: string
+  setDescription: (t: string) => void
   timeLimit: number
   setTimeLimit: (n: number) => void
   mondai: MondaiConfig[]
@@ -135,7 +136,7 @@ interface Step1Props {
   loading: boolean
 }
 
-function Step1({ level, setLevel, title, setTitle, timeLimit, setTimeLimit, mondai, setMondai, onNext, loading }: Step1Props) {
+function Step1({ level, setLevel, title, setTitle, description, setDescription, timeLimit, setTimeLimit, mondai, setMondai, onNext, loading }: Step1Props) {
   const totalQ = mondai.filter(m => m.enabled).reduce((s, m) => s + m.count, 0)
 
   const toggle = (id: number) =>
@@ -192,6 +193,19 @@ function Step1({ level, setLevel, title, setTitle, timeLimit, setTimeLimit, mond
             </button>
           </div>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Tổng thời gian cho toàn bộ các phần thi bên dưới.</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Mô tả đề thi</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Mô tả ngắn về đề thi..."
+            className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none"
+          />
         </div>
       </div>
 
@@ -671,6 +685,7 @@ export default function CreateExamPage() {
   // Step 1 state
   const [level, setLevel] = useState<Level>('N2')
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
   const [timeLimit, setTimeLimit] = useState(50)
   const [mondai, setMondai] = useState<MondaiConfig[]>(DEFAULT_MONDAI)
 
@@ -688,6 +703,7 @@ export default function CreateExamPage() {
     try {
       const exam = await examClient.createExam({
         title: `[${level}] ${title}`,
+        description,
         time_limit: timeLimit,
       })
       await examClient.updateExam(exam.exam_id, { current_step: 2 })
@@ -738,6 +754,7 @@ export default function CreateExamPage() {
           <Step1
             level={level} setLevel={setLevel}
             title={title} setTitle={setTitle}
+            description={description} setDescription={setDescription}
             timeLimit={timeLimit} setTimeLimit={setTimeLimit}
             mondai={mondai} setMondai={setMondai}
             onNext={handleStep1Next}

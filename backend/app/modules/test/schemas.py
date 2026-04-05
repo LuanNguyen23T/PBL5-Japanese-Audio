@@ -38,6 +38,7 @@ class TestExamDetailResponse(BaseModel):
     exam_id: UUID
     title: str
     description: Optional[str] = None
+    audio_mode: str = "practice"
     time_limit: Optional[int] = None
     is_published: bool
     audio_url: Optional[str] = None
