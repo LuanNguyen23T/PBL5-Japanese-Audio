@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronRight, ChevronLeft, Check, Headphones, Plus, Minus,
-  Upload, Trash2, Play, Pause, Loader2, CheckCircle2,
+  Upload, Trash2, Play, Pause, Loader2,
+  Star, Image as ImageIcon, Scissors,
 } from 'lucide-react'
 import { examClient } from './api/examClient'
 import { toast } from '@/hooks/use-toast'
@@ -34,10 +35,16 @@ interface LocalQuestion {
   question_number: number
   audio_clip_url?: string
   audioFile?: File
+  audio_name?: string
   audioUploading?: boolean
+  audio_trim_start?: number
+  audio_trim_end?: number
   question_text: string
   script_text: string
   explanation: string
+  image_url?: string
+  image_file?: File
+  difficulty?: number
   answers: LocalAnswer[]
   saved: boolean
 }
@@ -65,6 +72,19 @@ function makeDefaultAnswers(): LocalAnswer[] {
   ]
 }
 
+function extractMondaiNumber(label: string) {
+  const match = label.match(/(\d+)/)
+  return match ? Number(match[1]) : 999
+}
+
+function sortQuestions(items: LocalQuestion[]) {
+  return [...items].sort((a, b) => {
+    const mondaiDiff = extractMondaiNumber(a.mondai_group) - extractMondaiNumber(b.mondai_group)
+    if (mondaiDiff !== 0) return mondaiDiff
+    return a.question_number - b.question_number
+  })
+}
+
 function buildLocalQuestions(mondaiList: MondaiConfig[]): LocalQuestion[] {
   const qs: LocalQuestion[] = []
   for (const m of mondaiList) {
@@ -77,12 +97,199 @@ function buildLocalQuestions(mondaiList: MondaiConfig[]): LocalQuestion[] {
         question_text: '',
         script_text: '',
         explanation: '',
+        difficulty: 3,
         answers: makeDefaultAnswers(),
         saved: false,
       })
     }
   }
   return qs
+}
+
+interface AudioTrimmerProps {
+  audioFile: File | null
+  initialStart: number
+  initialEnd: number
+  onSave: (start: number, end: number) => void
+  onCancel: () => void
+}
+
+function formatAudioTime(secs: number) {
+  const m = Math.floor(Math.max(0, secs) / 60)
+  const s = Math.floor(Math.max(0, secs) % 60)
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
+
+function parseAudioTime(str: string, fallback: number) {
+  const parts = str.split(':')
+  if (parts.length === 2) return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0)
+  if (parts.length === 1) return parseInt(parts[0]) || 0
+  return fallback
+}
+
+async function trimAudioFile(file: File, start: number, end: number, nextName: string) {
+  const arrayBuffer = await file.arrayBuffer()
+  const audioContext = new AudioContext()
+  try {
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0))
+    const safeStart = Math.max(0, Math.min(start, decoded.duration))
+    const safeEnd = Math.max(safeStart, Math.min(end, decoded.duration))
+    const frameCount = Math.max(1, Math.floor((safeEnd - safeStart) * decoded.sampleRate))
+    const offlineContext = new OfflineAudioContext(decoded.numberOfChannels, frameCount, decoded.sampleRate)
+    const source = offlineContext.createBufferSource()
+    source.buffer = decoded
+    source.connect(offlineContext.destination)
+    source.start(0, safeStart, Math.max(0.05, safeEnd - safeStart))
+    const rendered = await offlineContext.startRendering()
+
+    const wavBuffer = audioBufferToWav(rendered)
+    return new File([wavBuffer], `${nextName || file.name.replace(/\.[^.]+$/, '')}.wav`, { type: 'audio/wav' })
+  } finally {
+    await audioContext.close()
+  }
+}
+
+function audioBufferToWav(buffer: AudioBuffer) {
+  const numChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  const bitsPerSample = 16
+  const bytesPerSample = bitsPerSample / 8
+  const blockAlign = numChannels * bytesPerSample
+  const dataLength = buffer.length * blockAlign
+  const output = new ArrayBuffer(44 + dataLength)
+  const view = new DataView(output)
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i))
+    }
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + dataLength, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * blockAlign, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, bitsPerSample, true)
+  writeString(36, 'data')
+  view.setUint32(40, dataLength, true)
+
+  let offset = 44
+  for (let i = 0; i < buffer.length; i += 1) {
+    for (let channel = 0; channel < numChannels; channel += 1) {
+      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]))
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+      offset += 2
+    }
+  }
+
+  return output
+}
+
+function AudioTrimmer({ audioFile, initialStart, initialEnd, onSave, onCancel }: AudioTrimmerProps) {
+  const [start, setStart] = useState<number>(initialStart || 0)
+  const [end, setEnd] = useState<number>(initialEnd || (initialStart + 10))
+  const [startText, setStartText] = useState(() => formatAudioTime(initialStart || 0))
+  const [endText, setEndText] = useState(() => formatAudioTime(initialEnd || (initialStart + 10)))
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+
+  useEffect(() => {
+    if (audioFile) {
+      const url = URL.createObjectURL(audioFile)
+      setObjectUrl(url)
+      return () => URL.revokeObjectURL(url)
+    }
+    setObjectUrl(null)
+    return undefined
+  }, [audioFile])
+
+  const handleAdjustStart = (offset: number) => {
+    setStart((value) => {
+      const next = Math.max(0, value + offset)
+      setStartText(formatAudioTime(next))
+      if (audioRef.current) {
+        audioRef.current.currentTime = next
+        audioRef.current.play().catch(() => {})
+      }
+      return next
+    })
+  }
+
+  const handleAdjustEnd = (offset: number) => {
+    setEnd((value) => {
+      const next = Math.max(0, value + offset)
+      setEndText(formatAudioTime(next))
+      if (audioRef.current) {
+        audioRef.current.currentTime = next
+        audioRef.current.play().catch(() => {})
+      }
+      return next
+    })
+  }
+
+  const applyStart = () => {
+    const next = parseAudioTime(startText, start)
+    setStart(next)
+    setStartText(formatAudioTime(next))
+  }
+
+  const applyEnd = () => {
+    const next = parseAudioTime(endText, end)
+    setEnd(next)
+    setEndText(formatAudioTime(next))
+  }
+
+  return (
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+      {objectUrl ? <audio ref={audioRef} src={objectUrl} controls className="h-10 w-full outline-none" /> : null}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="flex-1">
+          <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-400">Bắt đầu (mm:ss)</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={startText}
+              onChange={(e) => setStartText(e.target.value)}
+              onBlur={applyStart}
+              onKeyDown={(e) => e.key === 'Enter' && applyStart()}
+              className="w-20 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-center font-mono text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            />
+            <button type="button" onClick={() => handleAdjustStart(-1)} className="rounded-md bg-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">-1s</button>
+            <button type="button" onClick={() => handleAdjustStart(1)} className="rounded-md bg-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">+1s</button>
+          </div>
+        </div>
+        <div className="flex-1">
+          <label className="mb-1.5 block text-xs font-bold text-slate-500 dark:text-slate-400">Kết thúc (mm:ss)</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={endText}
+              onChange={(e) => setEndText(e.target.value)}
+              onBlur={applyEnd}
+              onKeyDown={(e) => e.key === 'Enter' && applyEnd()}
+              className="w-20 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-center font-mono text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            />
+            <button type="button" onClick={() => handleAdjustEnd(-1)} className="rounded-md bg-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">-1s</button>
+            <button type="button" onClick={() => handleAdjustEnd(1)} className="rounded-md bg-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">+1s</button>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-slate-200 pt-2 dark:border-slate-700">
+        <button type="button" onClick={() => onSave(start, end)} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-600">
+          <Scissors className="h-4 w-4" /> Lưu & Trích xuất
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700">
+          Hủy
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ─── Step Indicator ─────────────────────────────────────────────────────────
@@ -269,17 +476,37 @@ function Step1({ level, setLevel, title, setTitle, description, setDescription, 
 interface AudioZoneProps {
   question: LocalQuestion
   onUpload: (file: File) => void
+  onEdit: () => void
 }
 
-function AudioDropZone({ question, onUpload }: AudioZoneProps) {
+function AudioDropZone({ question, onUpload, onEdit }: AudioZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [playing, setPlaying] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [duration, setDuration] = useState(0)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (question.audioFile) {
+      const url = URL.createObjectURL(question.audioFile)
+      setObjectUrl(url)
+      return () => URL.revokeObjectURL(url)
+    }
+    setObjectUrl(null)
+    return undefined
+  }, [question.audioFile])
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith('audio/')) return
     onUpload(file)
+  }
+
+  const seek = (value: number) => {
+    if (!audioRef.current) return
+    audioRef.current.currentTime = value
+    setProgress(value)
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -298,7 +525,8 @@ function AudioDropZone({ question, onUpload }: AudioZoneProps) {
     )
   }
 
-  if (question.audio_clip_url) {
+  if (question.audio_clip_url || objectUrl) {
+    const audioSource = question.audio_clip_url || objectUrl || ''
     return (
       <div className="border-2 border-emerald-200 dark:border-emerald-900/50 rounded-xl p-4 bg-emerald-50 dark:bg-emerald-900/20">
         <div className="flex items-center gap-3">
@@ -306,9 +534,33 @@ function AudioDropZone({ question, onUpload }: AudioZoneProps) {
             <Headphones className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Audio đã upload thành công</p>
-            <audio ref={audioRef} src={question.audio_clip_url} onEnded={() => setPlaying(false)} className="hidden" />
-            <p className="text-xs text-emerald-600 dark:text-emerald-500 truncate mt-0.5">{question.audio_clip_url}</p>
+            <audio
+              ref={audioRef}
+              src={audioSource}
+              onEnded={() => {
+                setPlaying(false)
+                setProgress(0)
+              }}
+              onTimeUpdate={() => setProgress(audioRef.current?.currentTime ?? 0)}
+              onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
+              onPause={() => setPlaying(false)}
+              onPlay={() => setPlaying(true)}
+              className="hidden"
+            />
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={duration || 1}
+                step={0.01}
+                value={progress}
+                onChange={(e) => seek(Number(e.target.value))}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-emerald-100 accent-emerald-500"
+              />
+              <span className="w-20 shrink-0 text-right text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                {formatAudioTime(progress)} / {duration > 0 ? formatAudioTime(duration) : '--:--'}
+              </span>
+            </div>
           </div>
           <button onClick={() => {
             if (!audioRef.current) return
@@ -317,11 +569,23 @@ function AudioDropZone({ question, onUpload }: AudioZoneProps) {
           }} className="w-9 h-9 rounded-full bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center text-white hover:bg-emerald-600 dark:hover:bg-emerald-500 transition-colors shrink-0">
             {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            >
+              <Scissors className="h-3.5 w-3.5" /> Chỉnh sửa
+            </button>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+            >
+              <Upload className="h-3.5 w-3.5" /> Đổi file
+            </button>
+          </div>
         </div>
-        <button onClick={() => inputRef.current?.click()}
-          className="mt-3 text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 underline">
-          ↩ Đổi file audio
-        </button>
         <input ref={inputRef} type="file" accept="audio/*" className="hidden"
           onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }} />
       </div>
@@ -364,9 +628,19 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [isEditingAudio, setIsEditingAudio] = useState(false)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const q = questions[selectedIdx]
   const savedCount = questions.filter(q => q.saved).length
+  const groupedQuestions = Array.from(
+    questions.reduce((map, question, index) => {
+      const bucket = map.get(question.mondai_group) || []
+      bucket.push({ question, index })
+      map.set(question.mondai_group, bucket)
+      return map
+    }, new Map<string, Array<{ question: LocalQuestion; index: number }>>())
+  ).sort(([a], [b]) => extractMondaiNumber(a) - extractMondaiNumber(b))
 
   const updateQ = (patch: Partial<LocalQuestion>) => {
     onQuestionsChange(questions.map((item, i) => i === selectedIdx ? { ...item, ...patch } : item))
@@ -382,19 +656,54 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
     })
   }
 
+  const updateAnswerCount = (count: 3 | 4) => {
+    const nextAnswers = Array.from({ length: count }, (_, index) => {
+      const existing = q.answers[index]
+      return existing
+        ? { ...existing, order_index: index }
+        : {
+            id: makeId(),
+            content: '',
+            image_url: '',
+            is_correct: false,
+            order_index: index,
+          }
+    })
+    const hasCorrect = nextAnswers.some((answer) => answer.is_correct)
+    updateQ({
+      answers: hasCorrect ? nextAnswers : nextAnswers.map((answer) => ({ ...answer, is_correct: false })),
+    })
+  }
+
   const handleAudioUpload = async (file: File) => {
-    if (!q.question_id) {
-      // Must save question first
-      setError('Hãy lưu câu hỏi trước khi upload audio.')
-      return
-    }
-    updateQ({ audioFile: file, audioUploading: true })
+    setError('')
+    updateQ({
+      audioFile: file,
+      audio_name: file.name.replace(/\.[^.]+$/, ''),
+      audio_clip_url: undefined,
+      audioUploading: false,
+      audio_trim_start: 0,
+      audio_trim_end: 10,
+      saved: false,
+    })
+  }
+
+  const handleSaveAudioTrim = async (start: number, end: number) => {
+    if (!q.audioFile) return
     try {
-      const res = await examClient.uploadQuestionAudio(q.question_id, file)
-      updateQ({ audio_clip_url: res.audio_clip_url, audioUploading: false })
+      const trimmedFile = await trimAudioFile(q.audioFile, start, end, q.audio_name || q.audioFile.name.replace(/\.[^.]+$/, ''))
+      updateQ({
+        audioFile: trimmedFile,
+        audio_name: trimmedFile.name.replace(/\.[^.]+$/, ''),
+        audio_trim_start: 0,
+        audio_trim_end: Math.max(0, end - start),
+        audio_clip_url: undefined,
+        saved: false,
+      })
+      setIsEditingAudio(false)
+      toast({ title: 'Đã cắt audio', description: 'File audio sẽ được upload theo đoạn đã cắt khi lưu câu hỏi.' })
     } catch (e: any) {
-      updateQ({ audioUploading: false })
-      setError(e.message || 'Upload audio thất bại')
+      setError(e.message || 'Không thể cắt audio')
     }
   }
 
@@ -411,7 +720,9 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
           mondai_group: q.mondai_group,
           question_number: q.question_number,
           question_text: q.question_text,
-          explanation: q.explanation,
+          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          explanation: q.script_text,
+          difficulty: q.difficulty,
           answers: q.answers.map(a => ({
             question_id: '',  // will be set by server
             content: a.content,
@@ -432,7 +743,9 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
         // Update question
         await examClient.updateQuestion(questionId, {
           question_text: q.question_text,
-          explanation: q.explanation,
+          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          explanation: q.script_text,
+          difficulty: q.difficulty,
         })
         // Update answers
         for (const a of q.answers) {
@@ -454,6 +767,11 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
         updateQ({ audio_clip_url: audioRes.audio_clip_url, audioUploading: false, saved: true })
       }
 
+      if (q.image_file && questionId) {
+        const imageRes = await examClient.uploadQuestionImage(questionId, q.image_file)
+        updateQ({ image_url: imageRes.image_url, image_file: undefined, saved: true })
+      }
+
       // Move to next question
       if (selectedIdx < questions.length - 1) setSelectedIdx(selectedIdx + 1)
     } catch (e: any) {
@@ -463,69 +781,223 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
     }
   }
 
-  // Group by mondai for sidebar
-  const groups = Array.from(new Set(questions.map(q => q.mondai_group)))
+  const handleDeleteQuestion = async (index: number) => {
+    const target = questions[index]
+    if (!window.confirm('Xoá câu hỏi này?')) return
+    try {
+      if (target.question_id) {
+        await examClient.deleteQuestion(target.question_id)
+      }
+      const nextQuestions = questions.filter((_, i) => i !== index)
+      onQuestionsChange(nextQuestions)
+      setSelectedIdx((current) => Math.max(0, Math.min(current, nextQuestions.length - 1)))
+    } catch (e: any) {
+      setError(e.message || 'Xoá câu hỏi thất bại')
+    }
+  }
+
+  const handleDeleteMondai = async (group: string) => {
+    const targetQuestions = questions.filter((question) => question.mondai_group === group)
+    if (!window.confirm(`Xoá toàn bộ ${group}?`)) return
+    try {
+      await Promise.all(
+        targetQuestions
+          .filter((question) => question.question_id)
+          .map((question) => examClient.deleteQuestion(question.question_id!))
+      )
+      const nextQuestions = questions.filter((question) => question.mondai_group !== group)
+      onQuestionsChange(nextQuestions)
+      setSelectedIdx(0)
+    } catch (e: any) {
+      setError(e.message || 'Xoá mondai thất bại')
+    }
+  }
+
+  const handleAddQuestion = (group: string) => {
+    const groupQuestions = questions.filter((question) => question.mondai_group === group)
+    const nextQuestionNumber =
+      groupQuestions.length > 0
+        ? Math.max(...groupQuestions.map((question) => question.question_number)) + 1
+        : 1
+
+    const newQuestion: LocalQuestion = {
+      localId: makeId(),
+      mondai_group: group,
+      question_number: nextQuestionNumber,
+      question_text: '',
+      script_text: '',
+      explanation: '',
+      difficulty: 3,
+      answers: makeDefaultAnswers(),
+      saved: false,
+    }
+
+    const nextQuestions = sortQuestions([...questions, newQuestion])
+    onQuestionsChange(nextQuestions)
+    setSelectedIdx(nextQuestions.findIndex((item) => item.localId === newQuestion.localId))
+  }
+
+  const handleAddMondai = () => {
+    const existingMondaiNumbers = questions.map((question) => extractMondaiNumber(question.mondai_group))
+    const nextMondaiNumber = existingMondaiNumbers.length > 0 ? Math.max(...existingMondaiNumbers) + 1 : 1
+    const newQuestion: LocalQuestion = {
+      localId: makeId(),
+      mondai_group: `Mondai ${nextMondaiNumber}`,
+      question_number: 1,
+      question_text: '',
+      script_text: '',
+      explanation: '',
+      difficulty: 3,
+      answers: makeDefaultAnswers(),
+      saved: false,
+    }
+
+    const nextQuestions = sortQuestions([...questions, newQuestion])
+    onQuestionsChange(nextQuestions)
+    setSelectedIdx(nextQuestions.findIndex((item) => item.localId === newQuestion.localId))
+  }
+
+  const handleQuestionImagePick = (file: File | null) => {
+    if (!file) return
+    const localUrl = URL.createObjectURL(file)
+    updateQ({ image_url: localUrl, image_file: file })
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  if (!q) {
+    return (
+      <div className="flex h-[calc(100vh-260px)] min-h-[520px] items-center justify-center rounded-xl border border-slate-200 bg-white text-center dark:border-slate-700 dark:bg-slate-800/50">
+        <div>
+          <p className="text-base font-semibold text-slate-700 dark:text-slate-200">Không còn câu hỏi nào</p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Quay lại bước cấu hình để tạo lại cấu trúc đề thi.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex gap-4 h-[calc(100vh-260px)] min-h-[520px]">
       {/* Sidebar */}
-      <div className="w-60 shrink-0 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 overflow-y-auto">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800 z-10">
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Danh sách câu hỏi</p>
-          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5">{savedCount}/{questions.length} Hoàn thành</p>
+      <div className="w-72 shrink-0 border border-slate-200 dark:border-slate-700 rounded-xl bg-[#0f172a] text-white overflow-y-auto">
+        <div className="p-5 border-b border-slate-700 sticky top-0 bg-[#182235] z-10">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-300 uppercase tracking-[0.18em]">Danh sách câu hỏi</p>
+            <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-bold text-slate-200">{questions.length} câu</span>
+          </div>
+          <p className="text-xs text-blue-400 font-medium mt-2">{savedCount}/{questions.length} Hoàn thành</p>
         </div>
-        {groups.map(group => {
-          const groupQs = questions.filter(q => q.mondai_group === group)
-          const startIdx = questions.findIndex(q => q.mondai_group === group)
-          // Find corresponding mondai label
-          const mName = group.replace('Mondai ', '')
-          const mMeta = DEFAULT_MONDAI.find(m => `${m.id}` === mName)
+        {groupedQuestions.map(([group, groupQs]) => {
           return (
             <div key={group}>
-              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center justify-between px-5 py-4">
                 <div>
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{group} {mMeta ? `(${mMeta.nameJa.split(' ')[0]})` : ''}</p>
+                  <p className="text-sm font-bold text-slate-100">{group}</p>
                 </div>
-                <span className="text-xs text-slate-400 dark:text-slate-500">{groupQs.length} câu</span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">{groupQs.length} câu</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteMondai(group)}
+                    className="rounded-md p-1 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                    title="Xoá mondai"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-              {groupQs.map((qItem, localI) => {
-                const globalIdx = startIdx + localI
+              <div className="flex flex-wrap gap-2.5 px-5 pb-4">
+              {groupQs.map(({ question: qItem, index: globalIdx }) => {
                 const isActive = globalIdx === selectedIdx
                 return (
                   <button key={qItem.localId} onClick={() => setSelectedIdx(globalIdx)}
-                    className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors text-sm
-                      ${isActive ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
-                    <span className="flex-1">Câu {qItem.question_number}</span>
+                    className={`relative w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all
+                      ${isActive
+                        ? 'border-blue-500 bg-blue-500/15 text-blue-400 shadow-sm'
+                        : qItem.saved
+                          ? 'border-slate-600 text-slate-200 bg-slate-800 hover:border-slate-500'
+                      : 'border-slate-600 text-slate-300 bg-slate-800 hover:border-slate-500'
+                      }`}>
+                    <span>{qItem.question_number}</span>
                     {qItem.saved
-                      ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      : <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
+                      ? null
+                      : <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-[#0f172a] bg-amber-400 shrink-0" />}
                   </button>
                 )
               })}
+              <button
+                type="button"
+                onClick={() => handleAddQuestion(group)}
+                className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold border-2 border-dashed border-slate-500 text-slate-400 hover:border-blue-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                title="Thêm câu hỏi mới"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              </div>
             </div>
           )
         })}
+        <div className="p-4 pt-2">
+          <button
+            type="button"
+            onClick={handleAddMondai}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-600 px-4 py-3 text-sm font-bold text-slate-300 hover:border-blue-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Thêm Mondai mới
+          </button>
+        </div>
       </div>
 
       {/* Editor */}
       <div className="flex-1 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
-          <div>
-            <p className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide font-medium">Đang chỉnh sửa</p>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded">{q.mondai_group}</span>
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Câu hỏi số {q.question_number}</h2>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+            <div>
+              <p className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide font-medium">Đang chỉnh sửa</p>
+              <div className="mt-1 flex items-center gap-3">
+                <div className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-700/70">
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-100">{q.mondai_group}</span>
+                  <span className="text-slate-400">-</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-100">Câu</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateQ({ question_number: Math.max(1, q.question_number - 1) })}
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-300 text-sm font-bold text-slate-700 hover:bg-slate-400 dark:bg-slate-600 dark:text-slate-200"
+                    >
+                      -
+                    </button>
+                    <span className="w-5 text-center text-sm font-bold text-slate-800 dark:text-slate-100">{q.question_number}</span>
+                    <button
+                      type="button"
+                      onClick={() => updateQ({ question_number: q.question_number + 1 })}
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-300 text-sm font-bold text-slate-700 hover:bg-slate-400 dark:bg-slate-600 dark:text-slate-200"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-xl border border-slate-300 bg-slate-100 px-2.5 py-1.5 dark:border-slate-600 dark:bg-slate-900">
+                <span className="mr-1 text-xs font-bold text-slate-700 dark:text-slate-200">IRT</span>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => updateQ({ difficulty: star })}
+                    className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-white/70 dark:hover:bg-slate-800 ${(q.difficulty || 3) >= star ? 'text-amber-400' : 'text-slate-400 dark:text-slate-600'}`}
+                  >
+                    <Star className={`w-3.5 h-3.5 ${(q.difficulty || 3) >= star ? 'fill-current' : ''}`} />
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => void handleDeleteQuestion(selectedIdx)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                <Trash2 className="w-3.5 h-3.5" /> Xoá
+              </button>
             </div>
           </div>
-          <button onClick={() => {
-            if (!confirm('Xoá câu hỏi này?')) return
-            onQuestionsChange(questions.filter((_, i) => i !== selectedIdx))
-            setSelectedIdx(Math.max(0, selectedIdx - 1))
-          }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
-            <Trash2 className="w-3.5 h-3.5" /> Xoá
-          </button>
-        </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -534,62 +1006,132 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
             <div className="flex items-center gap-2 mb-3">
               <Headphones className="w-4 h-4 text-blue-600" />
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">File âm thanh (Audio)</p>
-              {!q.question_id && (
-                <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded">Lưu câu hỏi trước để upload audio</span>
-              )}
             </div>
-            <AudioDropZone question={q} onUpload={handleAudioUpload} />
+            {isEditingAudio ? (
+              <AudioTrimmer
+                audioFile={q.audioFile || null}
+                initialStart={q.audio_trim_start || 0}
+                initialEnd={q.audio_trim_end || 10}
+                onSave={(start, end) => void handleSaveAudioTrim(start, end)}
+                onCancel={() => setIsEditingAudio(false)}
+              />
+            ) : (
+              <AudioDropZone
+                question={q}
+                onUpload={handleAudioUpload}
+                onEdit={() => setIsEditingAudio(true)}
+              />
+            )}
           </div>
 
-          {/* Script + Question text */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Script (Tiếng Nhật) <span className="text-slate-400 dark:text-slate-500 font-normal">– Hiển thị khi xem lại</span>
-              </label>
-              <textarea value={q.script_text}
-                onChange={e => updateQ({ script_text: e.target.value })}
-                rows={5}
-                placeholder="Nhập nội dung hội thoại tiếng Nhật tại đây..."
-                className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Nội dung câu hỏi <span className="text-slate-400 dark:text-slate-500 font-normal">– Câu hỏi được đọc cuối bài</span>
-              </label>
-              <textarea value={q.question_text}
-                onChange={e => updateQ({ question_text: e.target.value })}
-                rows={5}
-                placeholder="Ví dụ: 男の人はこれから何をしますか。"
-                className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500" />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+              Nội dung câu hỏi <span className="text-slate-400 dark:text-slate-500 font-normal">– Câu hỏi được đọc cuối bài</span>
+            </label>
+            <textarea value={q.question_text}
+              onChange={e => updateQ({ question_text: e.target.value })}
+              rows={3}
+              placeholder="Ví dụ: 男の人はこれから何をしますか。"
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+              Script (Tiếng Nhật) <span className="text-slate-400 dark:text-slate-500 font-normal">– Hiển thị khi xem lại</span>
+            </label>
+            <textarea value={q.script_text}
+              onChange={e => updateQ({ script_text: e.target.value })}
+              rows={5}
+              placeholder="Nhập nội dung hội thoại tiếng Nhật tại đây..."
+              className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder:text-slate-400 dark:placeholder:text-slate-500" />
           </div>
 
           {/* Answers */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Đáp án lựa chọn</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Chọn đáp án đúng bằng cách tích vào ô tròn</p>
+              <p className="text-base font-bold text-slate-800 dark:text-slate-100">Đáp án lựa chọn (Choices)</p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Số đáp án</span>
+                {[3, 4].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => updateAnswerCount(count as 3 | 4)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors ${q.answers.length === count
+                      ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30'
+                      : 'border-slate-300 bg-slate-100 text-slate-500 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}
+                  >
+                    {count} đáp án
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               {q.answers.map((ans, ai) => (
-                <div key={ans.id} className={`rounded-xl border p-4 transition-all
-                  ${ans.is_correct ? 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}>
-                  <div className="flex items-center gap-3 mb-2">
-                    <button onClick={() => toggleCorrect(ans.id)}
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors
-                        ${ans.is_correct ? 'border-blue-600 dark:border-blue-400 bg-blue-600 dark:bg-blue-400' : 'border-slate-300 dark:border-slate-600'}`}>
-                      {ans.is_correct && <span className="w-2 h-2 rounded-full bg-white dark:bg-slate-900" />}
-                    </button>
-                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Đáp án {String.fromCharCode(65 + ai)}</span>
+                <div key={ans.id} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleCorrect(ans.id)}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${ans.is_correct
+                      ? 'border-blue-500 bg-blue-500/15'
+                      : 'border-slate-300 bg-transparent hover:border-slate-400 dark:border-slate-600'
+                    }`}
+                  >
+                    {ans.is_correct ? <span className="h-2 w-2 rounded-full bg-blue-500" /> : null}
+                  </button>
+                  <div className={`flex min-h-[38px] flex-1 items-center rounded-xl border px-3 transition-all ${ans.is_correct
+                    ? 'border-blue-500 bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20'
+                    : 'border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-800'
+                  }`}>
+                    <span className="mr-2.5 text-sm font-bold text-slate-500 dark:text-slate-300">
+                      {String.fromCharCode(65 + ai)}.
+                    </span>
+                    <input
+                      value={ans.content}
+                      onChange={e => updateAnswer(ans.id, { content: e.target.value })}
+                      placeholder="Nhập nội dung đáp án..."
+                      className="w-full bg-transparent text-[13px] font-medium text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-200 dark:placeholder:text-slate-500"
+                    />
                   </div>
-                  <textarea value={ans.content}
-                    onChange={e => updateAnswer(ans.id, { content: e.target.value })}
-                    rows={2}
-                    placeholder="Nhập nội dung đáp án..."
-                    className="w-full text-sm border-0 bg-transparent resize-none focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-700 dark:text-slate-200" />
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">
+              Hình ảnh minh họa
+            </label>
+            <div className="space-y-3">
+              {q.image_url ? (
+                <img
+                  src={q.image_url}
+                  alt="Question illustration"
+                  className="w-full max-h-56 object-cover rounded-xl border border-slate-200 dark:border-slate-700"
+                />
+              ) : null}
+              <input
+                value={q.image_url || ''}
+                onChange={e => updateQ({ image_url: e.target.value, image_file: undefined })}
+                placeholder="Dán URL ảnh hoặc upload bên dưới..."
+                className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <div
+                onClick={() => imageInputRef.current?.click()}
+                className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-6 flex flex-col items-center justify-center bg-slate-50/50 dark:bg-slate-900/30 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group"
+              >
+                <ImageIcon className="w-8 h-8 text-slate-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                <p className="text-sm text-slate-500 text-center">
+                  <span className="text-blue-500 font-semibold">Thêm ảnh</span> hoặc kéo thả
+                </p>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => handleQuestionImagePick(e.target.files?.[0] ?? null)}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -625,43 +1167,161 @@ interface Step3Props {
 }
 
 function Step3({ questions, examTitle, onBack, onPublish, publishing }: Step3Props) {
-  const groups = Array.from(new Set(questions.map(q => q.mondai_group)))
+  const [selectedIdx, setSelectedIdx] = useState(0)
   const savedCount = questions.filter(q => q.saved).length
+  const q = questions[selectedIdx]
+  const groupedQuestions = Array.from(
+    questions.reduce((map, question, index) => {
+      const bucket = map.get(question.mondai_group) || []
+      bucket.push({ question, index })
+      map.set(question.mondai_group, bucket)
+      return map
+    }, new Map<string, Array<{ question: LocalQuestion; index: number }>>())
+  ).sort(([a], [b]) => extractMondaiNumber(a) - extractMondaiNumber(b))
+
+  if (!q) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 dark:border-blue-800/50 dark:from-blue-900/20 dark:to-indigo-900/20">
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">{examTitle}</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Đã hoàn thành: <span className="font-semibold text-blue-600 dark:text-blue-400">{savedCount}/{questions.length}</span> câu hỏi</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-800/50">
+          <p className="text-base font-semibold text-slate-700 dark:text-slate-200">Không có câu hỏi để xem lại</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-100 dark:border-blue-800/50 rounded-xl p-5">
+      <div className="rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 dark:border-blue-800/50 dark:from-blue-900/20 dark:to-indigo-900/20">
         <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">{examTitle}</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Đã hoàn thành: <span className="font-semibold text-blue-600 dark:text-blue-400">{savedCount}/{questions.length}</span> câu hỏi</p>
       </div>
 
-      {groups.map(group => {
-        const groupQs = questions.filter(q => q.mondai_group === group)
-        return (
-          <div key={group}>
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">{group}</h4>
-            <div className="space-y-2">
-              {groupQs.map(q => (
-                <div key={q.localId} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg">
-                  {q.saved
-                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                    : <span className="w-5 h-5 rounded-full border-2 border-amber-400 shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
-                      Câu {q.question_number}: {q.question_text || <span className="italic text-slate-400 dark:text-slate-500">Chưa nhập nội dung</span>}
-                    </p>
-                  </div>
-                  {q.audio_clip_url && (
-                    <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full shrink-0">
-                      <Headphones className="w-3 h-3" /> Audio
-                    </span>
-                  )}
+      <div className="flex gap-4 h-[calc(100vh-260px)] min-h-[520px]">
+        <div className="w-72 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-[#0f172a] text-white dark:border-slate-700">
+          <div className="sticky top-0 z-10 border-b border-slate-700 bg-[#182235] p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Danh sách câu hỏi</p>
+              <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-bold text-slate-200">{questions.length} câu</span>
+            </div>
+            <p className="mt-2 text-xs font-medium text-blue-400">{savedCount}/{questions.length} Hoàn thành</p>
+          </div>
+          {groupedQuestions.map(([group, groupQs]) => (
+            <div key={group}>
+              <div className="flex items-center justify-between px-5 py-4">
+                <p className="text-sm font-bold text-slate-100">{group}</p>
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">{groupQs.length} câu</span>
+              </div>
+              <div className="flex flex-wrap gap-2.5 px-5 pb-4">
+                {groupQs.map(({ question: qItem, index }) => {
+                  const isActive = index === selectedIdx
+                  return (
+                    <button
+                      key={qItem.localId}
+                      type="button"
+                      onClick={() => setSelectedIdx(index)}
+                      className={`relative flex h-11 w-11 items-center justify-center rounded-full border-2 text-sm font-bold transition-all ${
+                        isActive
+                          ? 'border-blue-500 bg-blue-500/15 text-blue-400 shadow-sm'
+                          : qItem.saved
+                            ? 'border-slate-600 bg-slate-800 text-slate-200 hover:border-slate-500'
+                            : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500'
+                      }`}
+                    >
+                      <span>{qItem.question_number}</span>
+                      {qItem.saved ? null : <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-[#0f172a] bg-amber-400" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-700">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Xem lại</p>
+              <div className="mt-1 flex items-center gap-3">
+                <div className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-3 py-1.5 dark:border-slate-600 dark:bg-slate-700/70">
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-100">{q.mondai_group}</span>
+                  <span className="text-slate-400">-</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-100">Câu {q.question_number}</span>
                 </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 rounded-xl border border-slate-300 bg-slate-100 px-2.5 py-1.5 dark:border-slate-600 dark:bg-slate-900">
+              <span className="mr-1 text-xs font-bold text-slate-700 dark:text-slate-200">IRT</span>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <span key={star} className={`${(q.difficulty || 3) >= star ? 'text-amber-400' : 'text-slate-400 dark:text-slate-600'}`}>
+                  <Star className={`h-3.5 w-3.5 ${(q.difficulty || 3) >= star ? 'fill-current' : ''}`} />
+                </span>
               ))}
             </div>
           </div>
-        )
-      })}
+
+          <div className="flex-1 space-y-6 overflow-y-auto p-6">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <Headphones className="h-4 w-4 text-blue-600" />
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">File âm thanh (Audio)</p>
+              </div>
+              {q.audio_clip_url ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <audio controls src={q.audio_clip_url} className="h-10 w-full outline-none" />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/20">
+                  Chưa có audio
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-400">Nội dung câu hỏi</label>
+              <textarea value={q.question_text} readOnly rows={3} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-400">Script (Tiếng Nhật)</label>
+              <textarea value={q.script_text} readOnly rows={5} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100">Đáp án lựa chọn (Choices)</p>
+                <span className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  {q.answers.length} đáp án
+                </span>
+              </div>
+              <div className="space-y-3">
+                {q.answers.map((ans, ai) => (
+                  <div key={ans.id} className="flex items-center gap-2">
+                    <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${ans.is_correct ? 'border-blue-500 bg-blue-500/15' : 'border-slate-300 dark:border-slate-600'}`}>
+                      {ans.is_correct ? <span className="h-2 w-2 rounded-full bg-blue-500" /> : null}
+                    </div>
+                    <div className={`flex min-h-[38px] flex-1 items-center rounded-xl border px-3 ${ans.is_correct ? 'border-blue-500 bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20' : 'border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-800'}`}>
+                      <span className="mr-2.5 text-sm font-bold text-slate-500 dark:text-slate-300">{String.fromCharCode(65 + ai)}.</span>
+                      <input value={ans.content} readOnly className="w-full bg-transparent text-[13px] font-medium text-slate-700 outline-none dark:text-slate-200" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-800 dark:text-slate-200">Hình ảnh minh họa</label>
+              <div className="space-y-3">
+                {q.image_url ? <img src={q.image_url} alt="Question illustration" className="max-h-56 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700" /> : null}
+                <input value={q.image_url || ''} readOnly placeholder="Chưa có URL ảnh" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="flex items-center justify-between pt-2">
         <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
@@ -708,7 +1368,7 @@ export default function CreateExamPage() {
       })
       await examClient.updateExam(exam.exam_id, { current_step: 2 })
       setExamId(exam.exam_id)
-      setQuestions(buildLocalQuestions(mondai))
+      setQuestions(sortQuestions(buildLocalQuestions(mondai)))
       setStep(2)
     } catch (e: any) {
       toast({ title: 'Lỗi', description: e.message || 'Không thể tạo đề, thử lại.', variant: 'destructive' })
@@ -736,7 +1396,7 @@ export default function CreateExamPage() {
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="mx-auto max-w-[1440px] p-8">
       {/* Page header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Tạo đề thi thủ công</h1>
