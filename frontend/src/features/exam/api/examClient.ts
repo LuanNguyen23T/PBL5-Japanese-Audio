@@ -137,16 +137,6 @@ export const examClient = {
     }).then((r) => handleResponse<AudioUploadResponse>(r));
   },
 
-  // Generic upload
-  uploadImage: (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return apiFetch(`${API_BASE}/api/upload/image`, {
-      method: 'POST',
-      body: formData,
-    }).then((r) => handleResponse<{ secure_url: string }>(r)).then(d => d.secure_url);
-  },
-
   // Answer CRUD
   createAnswer: (data: AnswerPayload) =>
     apiFetch(`${API_BASE}/api/answers`, {
@@ -179,7 +169,6 @@ export interface AIQuestion {
   script_text: string;
   question_text: string;
   audio_url?: string;
-  image_url?: any; // To allow File or string
   source_segment_index?: number;
   source_question_index?: number;
   source_start_time?: number;
