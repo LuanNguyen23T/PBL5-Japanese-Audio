@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -16,6 +16,7 @@ class UserResult(Base):
     score = Column(Float, nullable=True)
     total_questions = Column(Integer, nullable=True)
     correct_answers = Column(Integer, nullable=True)
+    user_answers = Column(JSONB, nullable=True)
     completed_at = Column(DateTime, server_default=func.now())
 
     # Relationships

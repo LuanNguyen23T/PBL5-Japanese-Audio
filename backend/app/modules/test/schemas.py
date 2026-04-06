@@ -65,3 +65,26 @@ class TestSubmitResponse(BaseModel):
     correct_answers: int
     answered_questions: int
     completed_at: datetime
+
+
+class TestAnswerOptionReviewResponse(TestAnswerOptionResponse):
+    is_correct: bool
+
+
+class TestQuestionReviewResponse(TestQuestionResponse):
+    answers: List[TestAnswerOptionReviewResponse]
+
+
+class TestExamReviewDetailResponse(TestExamDetailResponse):
+    questions: List[TestQuestionReviewResponse]
+
+
+class TestResultReviewResponse(BaseModel):
+    result_id: UUID
+    exam_id: UUID
+    score: float
+    total_questions: int
+    correct_answers: int
+    completed_at: datetime
+    exam: TestExamReviewDetailResponse
+    user_answers: dict[str, str] = Field(default_factory=dict)
