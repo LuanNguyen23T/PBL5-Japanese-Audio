@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/apiClient'
+import { TestResultReviewResponse } from '../../test/types'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -33,5 +34,9 @@ export const resultClient = {
   getMyResults: async (page = 1, pageSize = 10): Promise<UserResultListResponse> => {
     const res = await apiFetch(`${API_BASE}/api/results/me?page=${page}&page_size=${pageSize}`)
     return handleResponse<UserResultListResponse>(res)
+  },
+  getResultReview: async (resultId: string): Promise<TestResultReviewResponse> => {
+    const res = await apiFetch(`${API_BASE}/api/test/results/${resultId}/review`)
+    return handleResponse<TestResultReviewResponse>(res)
   }
 }

@@ -9,6 +9,7 @@ from app.modules.test.schemas import (
     TestExamDetailResponse,
     TestSubmitRequest,
     TestSubmitResponse,
+    TestResultReviewResponse,
 )
 from app.modules.test.service import TestService
 from app.modules.users.models import User
@@ -39,3 +40,13 @@ async def submit_exam_test(
 ):
     """Submit a completed exam and store the resulting score."""
     return await service.submit_exam(exam_id, payload, current_user)
+
+
+@router.get("/results/{result_id}/review", response_model=TestResultReviewResponse)
+async def get_result_review_detail(
+    result_id: UUID,
+    service: TestService = Depends(get_test_service),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch the detailed history of a taken exam."""
+    return await service.get_result_review(result_id, current_user)

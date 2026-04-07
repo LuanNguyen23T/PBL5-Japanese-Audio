@@ -19,6 +19,7 @@ const ExamListPage = lazy(() => import('../features/exam/ExamListPage'))
 const ExamPrintPage = lazy(() => import('../features/exam/ExamPrintPage'))
 const TestExamDetailPage = lazy(() => import('../features/test/TestExamDetailPage'))
 const TakeExamPage = lazy(() => import('../features/test/TakeExamPage'))
+const TestResultReviewPage = lazy(() => import('../features/test/TestResultReviewPage'))
 const ExamHistoryPage = lazy(() => import('../features/exam/ExamHistoryPage').then(m => ({ default: m.ExamHistoryPage })))
 
 // Error boundary component
@@ -97,6 +98,10 @@ const routes = {
     {
       path: 'test/exams/:examId/take',
       element: <TakeExamPage />,
+    },
+    {
+      path: 'test/results/:resultId/review',
+      element: <TestResultReviewPage />,
     },
     {
       path: 'history',

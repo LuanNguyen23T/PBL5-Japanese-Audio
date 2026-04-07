@@ -55,3 +55,26 @@ export interface TestSubmitResult {
   answered_questions: number
   completed_at: string
 }
+
+export interface TestAnswerOptionReview extends TestAnswerOption {
+  is_correct: boolean
+}
+
+export interface TestQuestionReview extends Omit<TestQuestion, 'answers'> {
+  answers: TestAnswerOptionReview[]
+}
+
+export interface TestExamReviewDetail extends Omit<TestExamDetail, 'questions'> {
+  questions: TestQuestionReview[]
+}
+
+export interface TestResultReviewResponse {
+  result_id: string
+  exam_id: string
+  score: number
+  total_questions: number
+  correct_answers: number
+  completed_at: string
+  exam: TestExamReviewDetail
+  user_answers: Record<string, string>
+}

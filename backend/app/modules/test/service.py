@@ -21,6 +21,10 @@ from app.modules.test.schemas import (
     TestQuestionResponse,
     TestSubmitRequest,
     TestSubmitResponse,
+    TestResultReviewResponse,
+    TestExamReviewDetailResponse,
+    TestQuestionReviewResponse,
+    TestAnswerOptionReviewResponse,
 )
 from app.modules.users.models import User
 
@@ -195,6 +199,93 @@ class TestService:
             questions=serialized_questions,
         )
 
+    async def get_result_review(self, result_id: UUID, current_user: User) -> TestResultReviewResponse:
+        # Get result
+        result_stmt = select(UserResult).where(UserResult.result_id == result_id)
+        db_result = (await self.db.execute(result_stmt)).scalar_one_or_none()
+        
+        if not db_result:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found")
+        
+        if db_result.user_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not allowed to access this result",
+            )
+            
+        exam = await self._get_exam_entity(db_result.exam_id, current_user)
+        sorted_questions = _sort_questions(list(exam.questions))
+
+        mondai_map: dict[str, list[int]] = defaultdict(list)
+        serialized_questions: List[TestQuestionReviewResponse] = []
+        for question in sorted_questions:
+            if question.mondai_group:
+                mondai_map[question.mondai_group].append(question.question_number or 0)
+
+            answers = sorted(
+                question.answers,
+                key=lambda answer: answer.order_index if answer.order_index is not None else 999,
+            )
+            serialized_questions.append(
+                TestQuestionReviewResponse(
+                    question_id=question.question_id,
+                    mondai_group=question.mondai_group,
+                    question_number=question.question_number,
+                    audio_clip_url=question.audio_clip_url,
+                    question_text=question.question_text,
+                    image_url=question.image_url,
+                    difficulty=question.difficulty,
+                    answers=[
+                        TestAnswerOptionReviewResponse(
+                            answer_id=answer.answer_id,
+                            content=answer.content,
+                            image_url=answer.image_url,
+                            order_index=answer.order_index,
+                            is_correct=answer.is_correct
+                        )
+                        for answer in answers
+                    ],
+                )
+            )
+
+        mondai_groups = [
+            TestMondaiGroupResponse(
+                label=label,
+                question_count=len(numbers),
+                start_number=min(numbers) if numbers else None,
+                end_number=max(numbers) if numbers else None,
+            )
+            for label, numbers in sorted(
+                mondai_map.items(),
+                key=lambda item: _extract_mondai_number(item[0]),
+            )
+        ]
+
+        audio_url = exam.audio.file_url if isinstance(exam.audio, Audio) else None
+        exam_review = TestExamReviewDetailResponse(
+            exam_id=exam.exam_id,
+            title=exam.title,
+            description=exam.description,
+            audio_mode=getattr(exam, "audio_mode", "practice") or "practice",
+            time_limit=exam.time_limit,
+            is_published=exam.is_published,
+            audio_url=audio_url,
+            total_questions=len(serialized_questions),
+            mondai_groups=mondai_groups,
+            questions=serialized_questions,
+        )
+
+        return TestResultReviewResponse(
+            result_id=db_result.result_id,
+            exam_id=db_result.exam_id,
+            score=db_result.score or 0.0,
+            total_questions=db_result.total_questions or 0,
+            correct_answers=db_result.correct_answers or 0,
+            completed_at=db_result.completed_at,
+            exam=exam_review,
+            user_answers=db_result.user_answers or {}
+        )
+
     async def submit_exam(
         self,
         exam_id: UUID,
@@ -233,12 +324,15 @@ class TestService:
         total_questions = len(sorted_questions)
         score = round(calculate_irt_score(responses), 2)
 
+        user_answers_dict = {str(k): str(v) for k, v in submitted_answers.items() if v}
+
         result = UserResult(
             user_id=current_user.id,
             exam_id=exam.exam_id,
             score=score,
             total_questions=total_questions,
             correct_answers=correct_answers,
+            user_answers=user_answers_dict,
         )
         self.db.add(result)
         await self.db.commit()

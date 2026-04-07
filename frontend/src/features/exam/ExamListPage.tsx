@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, BookOpen, Clock, Layers, FileText, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react'
+import { Plus, BookOpen, Clock, Layers, FileText, CheckCircle2, AlertCircle, Sparkles, Search, Filter, Calendar } from 'lucide-react'
 import { examClient, ExamResponse } from './api/examClient'
 import ExamDetailModal from './ExamDetailModal'
 
@@ -80,6 +80,10 @@ export default function ExamListPage() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<ExamResponse | null>(null)
 
+  const [searchQuery, setSearchQuery] = useState('')
+  const [levelFilter, setLevelFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('all')
+
   const fetchExams = () => {
     setLoading(true)
     examClient.listExams()
@@ -92,8 +96,35 @@ export default function ExamListPage() {
     fetchExams()
   }, [])
 
-  const published = exams.filter(e => e.is_published)
-  const drafts = exams.filter(e => !e.is_published)
+  const filteredExams = exams.filter(exam => {
+    if (searchQuery && !exam.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false
+    }
+    if (levelFilter !== 'all' && !exam.title.includes(levelFilter)) {
+      return false
+    }
+    
+    if (dateFilter !== 'all') {
+      const examDate = new Date(exam.created_at)
+      const now = new Date()
+      if (dateFilter === 'today') {
+        if (examDate.toDateString() !== now.toDateString()) return false
+      } else if (dateFilter === 'week') {
+        const weekAgo = new Date()
+        weekAgo.setDate(now.getDate() - 7)
+        if (examDate < weekAgo) return false
+      } else if (dateFilter === 'month') {
+        const monthAgo = new Date()
+        monthAgo.setMonth(now.getMonth() - 1)
+        if (examDate < monthAgo) return false
+      }
+    }
+    
+    return true
+  })
+
+  const published = filteredExams.filter(e => e.is_published)
+  const drafts = filteredExams.filter(e => !e.is_published)
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -122,6 +153,54 @@ export default function ExamListPage() {
           </button>
         </div>
       </div>
+
+      {/* Filters & Search */}
+      {!loading && exams.length > 0 && (
+        <div className="flex flex-col md:flex-row gap-4 mb-8 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm đề thi..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-slate-200"
+            />
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10 pointer-events-none" />
+              <select
+                value={levelFilter}
+                onChange={(e) => setLevelFilter(e.target.value)}
+                className="appearance-none pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-slate-200 min-w-[130px] cursor-pointer"
+              >
+                <option value="all">Mọi cấp độ</option>
+                <option value="N1">N1</option>
+                <option value="N2">N2</option>
+                <option value="N3">N3</option>
+                <option value="N4">N4</option>
+                <option value="N5">N5</option>
+              </select>
+            </div>
+
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10 pointer-events-none" />
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="appearance-none pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-slate-200 min-w-[130px] cursor-pointer"
+              >
+                <option value="all">Mọi lúc</option>
+                <option value="today">Hôm nay</option>
+                <option value="week">Tuần này</option>
+                <option value="month">Tháng này</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error state */}
       {error && (
@@ -161,6 +240,18 @@ export default function ExamListPage() {
               <Plus className="w-4 h-4" /> Tạo thủ công
             </button>
           </div>
+        </div>
+      ) : filteredExams.length === 0 && exams.length > 0 ? (
+        <div className="text-center py-24">
+          <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
+            <Search className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+          </div>
+          <h2 className="text-base font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Không tìm thấy đề thi
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Hãy thử thay đổi từ khóa hoặc bộ lọc của bạn.
+          </p>
         </div>
       ) : (
         <div className="space-y-8">

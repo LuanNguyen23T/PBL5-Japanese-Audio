@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  History, Loader2, CheckCircle2, ChevronLeft, Calendar
+  History, Loader2, CheckCircle2, ChevronLeft, Calendar, Eye
 } from 'lucide-react'
 import { resultClient, UserResultListResponse } from './api/resultClient'
 
@@ -133,15 +133,25 @@ export function ExamHistoryPage() {
                     </div>
 
                     {/* Footer / Date */}
-                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                      <Calendar className="w-3.5 h-3.5" />
-                      {new Date(result.completed_at).toLocaleString('vi-VN', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                    <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/50 pt-4 mt-2">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {new Date(result.completed_at).toLocaleString('vi-VN', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                      
+                      <button
+                        onClick={() => navigate(`/test/results/${result.result_id}/review`)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
+                        title="Xem chi tiết câu trả lời"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Thêm
+                      </button>
                     </div>
                   </div>
                 </div>
