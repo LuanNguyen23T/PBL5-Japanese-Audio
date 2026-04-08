@@ -6,6 +6,7 @@ import {
   Star, Image as ImageIcon, Scissors,
 } from 'lucide-react'
 import { examClient } from './api/examClient'
+import AIPhotoGenerator from './components/AIPhotoGenerator'
 import { toast } from '@/hooks/use-toast'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -720,7 +721,7 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
           mondai_group: q.mondai_group,
           question_number: q.question_number,
           question_text: q.question_text,
-          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          image_url: q.image_file ? null : (q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : null),
           explanation: q.script_text,
           difficulty: q.difficulty,
           answers: q.answers.map(a => ({
@@ -743,7 +744,7 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
         // Update question
         await examClient.updateQuestion(questionId, {
           question_text: q.question_text,
-          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          image_url: q.image_file ? null : (q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : null),
           explanation: q.script_text,
           difficulty: q.difficulty,
         })
@@ -861,6 +862,11 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
     if (!file) return
     const localUrl = URL.createObjectURL(file)
     updateQ({ image_url: localUrl, image_file: file })
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  const handleRemoveQuestionImage = () => {
+    updateQ({ image_url: '', image_file: undefined })
     if (imageInputRef.current) imageInputRef.current.value = ''
   }
 
@@ -1099,9 +1105,21 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">
-              Hình ảnh minh họa
-            </label>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="block text-sm font-bold text-slate-800 dark:text-slate-200">
+                Hình ảnh minh họa
+              </label>
+              {q.image_url ? (
+                <button
+                  type="button"
+                  onClick={handleRemoveQuestionImage}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Xoá ảnh
+                </button>
+              ) : null}
+            </div>
             <div className="space-y-3">
               {q.image_url ? (
                 <img
@@ -1132,6 +1150,14 @@ function Step2({ questions, examId, onQuestionsChange, onBack }: Step2Props) {
                   onChange={e => handleQuestionImagePick(e.target.files?.[0] ?? null)}
                 />
               </div>
+              <AIPhotoGenerator
+                currentImageUrl={q.image_url}
+                questionText={q.question_text}
+                scriptText={q.script_text}
+                answers={q.answers}
+                onSelectImage={(file, previewUrl) => updateQ({ image_url: previewUrl, image_file: file })}
+                onRemoveImage={handleRemoveQuestionImage}
+              />
             </div>
           </div>
         </div>
