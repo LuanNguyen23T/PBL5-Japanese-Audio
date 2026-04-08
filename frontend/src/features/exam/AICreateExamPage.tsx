@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { aiExamClient, AIJobStatus, AIQuestion, AIExamResult, AIQuestionOption } from './api/examClient'
 import { examClient } from './api/examClient'
+import AIPhotoGenerator from './components/AIPhotoGenerator'
 import { toast } from '@/hooks/use-toast'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -676,6 +677,11 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
     }
   }
 
+  const handleRemoveQuestionImage = () => {
+    updateQuestion(activeQIdx, { image_url: '', image_file: undefined })
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
   const groupedQuestions = editableQuestions.reduce((acc, q, idx) => {
     if (!acc[q.mondai_group]) acc[q.mondai_group] = []
     acc[q.mondai_group].push({ q, idx })
@@ -931,9 +937,21 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
 
                 {/* Image Upload Placeholder */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">
-                    Hình ảnh minh họa (Tùy chọn)
-                  </label>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-bold text-slate-800 dark:text-slate-200">
+                      Hình ảnh minh họa (Tùy chọn)
+                    </label>
+                    {activeQ.image_url ? (
+                      <button
+                        type="button"
+                        onClick={handleRemoveQuestionImage}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Xoá ảnh
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="space-y-3">
                     {activeQ.image_url ? (
                       <img
@@ -964,6 +982,14 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                         onChange={e => handleQuestionImagePick(e.target.files?.[0] ?? null)}
                       />
                     </div>
+                    <AIPhotoGenerator
+                      currentImageUrl={activeQ.image_url}
+                      questionText={activeQ.question_text}
+                      scriptText={activeQ.script_text}
+                      answers={activeQ.answers}
+                      onSelectImage={(file, previewUrl) => updateQuestion(activeQIdx, { image_url: previewUrl, image_file: file })}
+                      onRemoveImage={handleRemoveQuestionImage}
+                    />
                   </div>
                 </div>
 
@@ -1019,7 +1045,7 @@ function Step4Save({ questions, level, title, description, draftId, onBack }: St
           question_number: q.question_number,
           question_text: q.question_text,
           audio_clip_url: q.audio_url,
-          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          image_url: q.image_file ? null : (q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : null),
           explanation: composeExplanation(q),
           difficulty: q.difficulty,
           answers: q.answers.map((a, i) => ({
@@ -1295,7 +1321,7 @@ export default function AICreateExamPage() {
           question_number: q.question_number,
           question_text: q.question_text,
           audio_clip_url: q.audio_url,
-          image_url: q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : undefined,
+          image_url: q.image_file ? null : (q.image_url && !q.image_url.startsWith('blob:') ? q.image_url : null),
           explanation: composeExplanation(q),
           difficulty: q.difficulty,
           answers: q.answers.map((a, i) => ({

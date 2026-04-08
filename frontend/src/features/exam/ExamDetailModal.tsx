@@ -6,6 +6,7 @@ import {
   Edit3, FileText, ChevronLeft, ExternalLink, Plus, Star, Scissors, Download
 } from 'lucide-react'
 import { examClient, ExamResponse, QuestionResponse, AnswerResponse } from './api/examClient'
+import AIPhotoGenerator from './components/AIPhotoGenerator'
 import { toast } from '@/hooks/use-toast'
 
 interface Props {
@@ -13,6 +14,10 @@ interface Props {
   onClose: () => void
   onExamDeleted?: () => void
   onExamUpdated?: (exam: ExamResponse) => void
+}
+
+type EditableQuestionPatch = Partial<QuestionResponse> & {
+  image_file?: File | null
 }
 
 function AudioPlayer({ url }: { url: string }) {
@@ -252,7 +257,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
   const [deletingExam, setDeletingExam] = useState(false)
 
   // Per-question editing state
-  const [editedQuestions, setEditedQuestions] = useState<Record<string, Partial<QuestionResponse>>>({})
+  const [editedQuestions, setEditedQuestions] = useState<Record<string, EditableQuestionPatch>>({})
   const [savingQ, setSavingQ] = useState<string | null>(null)
   const [deletingQ, setDeletingQ] = useState<string | null>(null)
   const [confirmDeleteQ, setConfirmDeleteQ] = useState<string | null>(null)
@@ -306,7 +311,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
 
   const getEditQ = (q: QuestionResponse) => ({ ...q, ...(editedQuestions[q.question_id] ?? {}) })
 
-  const patchQ = (qId: string, patch: Partial<QuestionResponse>) => {
+  const patchQ = (qId: string, patch: EditableQuestionPatch) => {
     setEditedQuestions(prev => ({ ...prev, [qId]: { ...(prev[qId] ?? {}), ...patch } }))
   }
 
@@ -332,9 +337,20 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
     if (!patch) return
     setSavingQ(q.question_id)
     try {
-      const { answers: patchAnswers, ...questionPatch } = patch
-      const updated = await examClient.updateQuestion(q.question_id, questionPatch)
-      // Save answers if changed
+      const { answers: patchAnswers, image_file, ...questionPatch } = patch
+      const safeQuestionPatch = {
+        ...questionPatch,
+        ...(Object.prototype.hasOwnProperty.call(patch, 'image_url')
+          ? {
+              image_url: image_file
+                ? null
+                : ((patch.image_url && !patch.image_url.startsWith('blob:')) ? patch.image_url : null),
+            }
+          : {}),
+      }
+
+      await examClient.updateQuestion(q.question_id, safeQuestionPatch)
+
       if (patchAnswers) {
         const removedAnswers = q.answers.filter(oa => !patchAnswers.find(pa => pa.answer_id === oa.answer_id))
         await Promise.all(removedAnswers.map(a => examClient.deleteAnswer(a.answer_id)))
@@ -346,12 +362,16 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
               : examClient.createAnswer({ question_id: q.question_id, content: a.content || '', is_correct: !!a.is_correct, order_index: i })
           )
         )
-        const allQs = await examClient.getExamQuestions(exam.exam_id)
-        const refreshedQ = allQs.find(x => x.question_id === q.question_id)
-        setQuestions(prev => prev.map(x => x.question_id === q.question_id ? (refreshedQ || x) : x))
-      } else {
-        setQuestions(prev => prev.map(x => x.question_id === q.question_id ? { ...x, ...updated } : x))
       }
+
+      if (image_file) {
+        await examClient.uploadQuestionImage(q.question_id, image_file)
+      }
+
+      const allQs = await examClient.getExamQuestions(exam.exam_id)
+      const refreshedQ = allQs.find(x => x.question_id === q.question_id)
+      setQuestions(prev => prev.map(x => x.question_id === q.question_id ? (refreshedQ || x) : x))
+
       setEditedQuestions(prev => { const n = { ...prev }; delete n[q.question_id]; return n })
       toast({ title: 'Đã lưu câu hỏi' })
     } catch (e: any) {
@@ -387,17 +407,17 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
     }
   }
 
-  const handleUploadQuestionImage = async (questionId: string, file: File | null) => {
+  const handlePickQuestionImage = (questionId: string, file: File | null) => {
     if (!file) return
-    try {
-      const uploaded = await examClient.uploadQuestionImage(questionId, file)
-      patchQ(questionId, { image_url: uploaded.image_url })
-      toast({ title: 'Đã upload ảnh' })
-    } catch (e: any) {
-      toast({ title: 'Lỗi', description: e.message, variant: 'destructive' })
-    } finally {
-      if (imageInputRef.current) imageInputRef.current.value = ''
-    }
+    const localUrl = URL.createObjectURL(file)
+    patchQ(questionId, { image_url: localUrl, image_file: file })
+    toast({ title: 'Đã chọn ảnh', description: 'Ảnh sẽ được lưu khi bạn lưu câu hỏi.' })
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  const handleRemoveQuestionImage = (questionId: string) => {
+    patchQ(questionId, { image_url: '', image_file: null })
+    if (imageInputRef.current) imageInputRef.current.value = ''
   }
 
   const handleAddQuestion = async (group: string) => {
@@ -891,9 +911,21 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                       </div>
 
                       <div>
-                        <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">
-                          Hình ảnh minh họa
-                        </label>
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <label className="block text-sm font-bold text-slate-800 dark:text-slate-200">
+                            Hình ảnh minh họa
+                          </label>
+                          {activeEdited.image_url ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveQuestionImage(activeQ.question_id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Xoá ảnh
+                            </button>
+                          ) : null}
+                        </div>
                         <div className="space-y-3">
                           {activeEdited.image_url ? (
                             <img
@@ -904,7 +936,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                           ) : null}
                           <input
                             value={activeEdited.image_url ?? ''}
-                            onChange={e => patchQ(activeQ.question_id, { image_url: e.target.value })}
+                            onChange={e => patchQ(activeQ.question_id, { image_url: e.target.value, image_file: null })}
                             placeholder="Dán URL ảnh nếu cần..."
                             className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
                           />
@@ -921,9 +953,17 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
                               type="file"
                               accept="image/*"
                               className="hidden"
-                              onChange={e => handleUploadQuestionImage(activeQ.question_id, e.target.files?.[0] ?? null)}
+                              onChange={e => handlePickQuestionImage(activeQ.question_id, e.target.files?.[0] ?? null)}
                             />
                           </div>
+                          <AIPhotoGenerator
+                            currentImageUrl={activeEdited.image_url}
+                            questionText={activeEdited.question_text}
+                            scriptText={activeEdited.explanation}
+                            answers={activeEdited.answers}
+                            onSelectImage={(file, previewUrl) => patchQ(activeQ.question_id, { image_url: previewUrl, image_file: file })}
+                            onRemoveImage={() => handleRemoveQuestionImage(activeQ.question_id)}
+                          />
                         </div>
                       </div>
 

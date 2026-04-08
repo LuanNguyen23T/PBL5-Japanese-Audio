@@ -44,7 +44,7 @@ export interface ExamListResponse {
 export interface AnswerPayload {
   question_id: string;
   content?: string;
-  image_url?: string;
+  image_url?: string | null;
   is_correct: boolean;
   order_index?: number;
 }
@@ -59,7 +59,7 @@ export interface QuestionPayload {
   question_number?: number;
   audio_clip_url?: string;
   question_text?: string;
-  image_url?: string;
+  image_url?: string | null;
   explanation?: string;
   difficulty?: number;
   answers?: AnswerPayload[];
@@ -72,7 +72,7 @@ export interface QuestionResponse {
   question_number?: number;
   audio_clip_url?: string;
   question_text?: string;
-  image_url?: string;
+  image_url?: string | null;
   explanation?: string;
   difficulty?: number;
   answers: AnswerResponse[];

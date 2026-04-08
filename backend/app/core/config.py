@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     # n8n Automation Settings
     N8N_WEBHOOK_URL: Optional[str] = os.getenv("N8N_WEBHOOK_URL")
 
+    # AI Photos generation
+    LM_STUDIO_API_URL: str = "http://127.0.0.1:1234/v1/chat/completions"
+    LM_STUDIO_MODEL: str = "gemma-4-e4b-it"
+    DRAW_THINGS_API_URL: str = "http://127.0.0.1:7860/sdapi/v1/txt2img"
+    AI_PHOTO_BASE_PROMPT: str = "(masterpiece, best quality, very aesthetic, line art, educational illustration:1.2), flat colors, simple lines, vector style, white background"
+    AI_PHOTO_NEGATIVE_PROMPT: str = "(low quality, worst quality:1.4), (bad anatomy), (inaccurate limb:1.2), bad composition, inaccurate eyes, extra digit, fewer digits, (extra arms:1.2), photo, realistic, 3d render"
+    AI_PHOTO_OUTPUT_DIR: str = "generated/ai-photos"
+    AI_PHOTO_WIDTH: int = 512
+    AI_PHOTO_HEIGHT: int = 512
+    AI_PHOTO_STEPS: int = 25
+    AI_PHOTO_CFG_SCALE: float = 7.0
+
     class Config:
         env_file = ".env"
         case_sensitive = True
