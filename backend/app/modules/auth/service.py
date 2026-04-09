@@ -129,9 +129,10 @@ class AuthService:
         if not self.settings.GOOGLE_CLIENT_ID or not self.settings.GOOGLE_CLIENT_SECRET:
             raise HTTPException(status_code=503, detail="Google OAuth is not configured")
 
+        resolved_redirect_uri = self.get_google_redirect_uri(redirect_uri)
         params = {
             "client_id": self.settings.GOOGLE_CLIENT_ID,
-            "redirect_uri": redirect_uri,
+            "redirect_uri": resolved_redirect_uri,
             "response_type": "code",
             "scope": "openid email profile",
             "access_type": "offline",
@@ -147,6 +148,7 @@ class AuthService:
             raise HTTPException(status_code=503, detail="Google OAuth is not configured")
 
         next_path = self._decode_google_state_token(state)
+        resolved_redirect_uri = self.get_google_redirect_uri(redirect_uri)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             token_response = await client.post(
@@ -155,7 +157,7 @@ class AuthService:
                     "code": code,
                     "client_id": self.settings.GOOGLE_CLIENT_ID,
                     "client_secret": self.settings.GOOGLE_CLIENT_SECRET,
-                    "redirect_uri": redirect_uri,
+                    "redirect_uri": resolved_redirect_uri,
                     "grant_type": "authorization_code",
                 },
                 headers={"Accept": "application/json"},
@@ -185,6 +187,10 @@ class AuthService:
             refresh_token=tokens["refresh_token"],
             next_path=next_path,
         )
+
+    def get_google_redirect_uri(self, request_redirect_uri: str) -> str:
+        """Resolve Google redirect URI from config first, then request."""
+        return (self.settings.GOOGLE_REDIRECT_URI or request_redirect_uri).strip()
 
     def build_frontend_oauth_redirect(
         self,
