@@ -160,7 +160,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
                       >
                         <PolarGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                         <PolarAngleAxis dataKey="subject" tick={{ fill: '#475569', fontSize: 13, fontWeight: 600 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} />
                         <RechartsTooltip formatter={(value: any) => [`${value}%`, 'Tỷ lệ đúng']} />
                         <Radar
                           name="Kỹ năng"

@@ -174,30 +174,32 @@ class CompetencyAnalysisService:
         
         # 5. Build Prompt
         system_prompt = (
-            "Bạn là một chuyên gia đánh giá năng lực tiếng Nhật JLPT có tâm huyết và cực kỳ nghiêm khắc nhưng thấu hiểu. "
-            "Nhận xét của bạn luôn thẳng thắn, súc tích, đi thẳng vào vấn đề cốt lõi, không vòng vo hay sáo rỗng. "
-            "Khi phân tích, hãy chú ý đến các bẫy đặc trưng của JLPT như: thay đổi quyết định ở phút cuối, "
-            "sử dụng kính ngữ/khiêm nhường ngữ, hay các từ nối nghịch bộ (shikashi, demo, tokoroga)."
+            "You are a dedicated, highly strict yet understanding JLPT Japanese language competency assessment expert. "
+            "Your feedback is always straightforward, concise, gets right to the core issue, and avoids empty or roundabout phrases. "
+            "When analyzing, pay close attention to typical JLPT listening traps such as: last-minute decision changes, "
+            "the use of honorifics/humble language (keigo/kenjougo), or contrastive conjunctions (shikashi, demo, tokoroga). "
+            "IMPORTANT: Your entire response must be written exclusively in Vietnamese."
         )
         
-        user_prompt = f"""DỮ LIỆU ĐẦU VÀO:
-- Tỷ lệ đúng từng kỹ năng:
+        user_prompt = f"""INPUT DATA:
+- Accuracy rate by skill:
 {chr(10).join(skill_summary)}
 
-- Chi tiết lỗi sai tiêu biểu:
+- Typical mistakes details:
 {json.dumps(mistakes_to_send, ensure_ascii=False, indent=2)}
 
-YÊU CẦU PHÂN TÍCH (Ngắn gọn, súc tích tối đa):
-1. Khái quát nhánh năng lực chênh lệch. Tổng hợp và tìm ra đâu là kỹ năng mạnh nhất, kỹ năng yếu nhất.
-2. Quan sát "Chi tiết các câu làm sai", đọc kỹ "explanation", tìm ra quy luật chọn sai của học viên.
-3. Đưa ra lời khuyên thực tế, chỉ định hành động khắc phục cụ thể.
+ANALYSIS REQUIREMENTS (Extremely concise and brief):
+1. Generalize the competency gap. Synthesize and determine the strongest and weakest skills.
+2. Observe the "Typical mistakes details", read the "explanation" carefully, and identify the patterns in the student's incorrect choices.
+3. Provide practical advice and specify concrete corrective actions.
+4. YOUR OUTPUT TEXT MUST BE IN VIETNAMESE.
 
-ĐỊNH DẠNG JSON ĐẦU RA BẮT BUỘC (Không thêm text ngoài JSON):
+MANDATORY OUTPUT JSON FORMAT (Do not add any markdown formatting or text outside the JSON):
 {{
-  "overview": "Đánh giá chung (Tối đa 2 câu chẩn đoán cốt lõi).",
-  "strengths": ["Điểm mạnh 1 (ngắn gọn)", "Điểm mạnh 2 (ngắn gọn)"],
-  "weaknesses_analysis": "Phân tích thẳng vào lỗ hổng kiến thức chính (Tối đa 2 câu).",
-  "actionable_advice": ["Giải pháp 1 (Cụ thể, thực tế)", "Giải pháp 2 (Cụ thể, thực tế)"]
+  "overview": "Đánh giá chung (Tối đa 2 câu chẩn đoán cốt lõi bằng tiếng Việt).",
+  "strengths": ["Điểm mạnh 1 bằng tiếng Việt (ngắn gọn)", "Điểm mạnh 2 bằng tiếng Việt (ngắn gọn)"],
+  "weaknesses_analysis": "Phân tích thẳng vào lỗ hổng kiến thức chính bằng tiếng Việt (Tối đa 2 câu).",
+  "actionable_advice": ["Giải pháp 1 bằng tiếng Việt (Cụ thể, thực tế)", "Giải pháp 2 bằng tiếng Việt (Cụ thể, thực tế)"]
 }}
 """
         
