@@ -20,23 +20,33 @@ def get_skill_from_mondai(mondai_group: str) -> str:
         return "Khác"
     mondai = mondai_group.lower().strip()
     
-    # Generic mapping logic based on typical JLPT patterns.
-    # Adjust this based on your actual data.
-    if "từ vựng" in mondai or "kanji" in mondai:
-        return "Từ vựng"
-    elif "ngữ pháp" in mondai:
-        return "Ngữ pháp"
-    elif "đọc" in mondai or "đoạn văn" in mondai:
-        return "Đọc hiểu"
-    elif "nghe" in mondai or "choukai" in mondai:
-        return "Nghe hiểu"
-    
-    # Simple fallback based on Mondai numbering if actual text isn't clear
-    if "mondai 1" in mondai or "mondai 2" in mondai or "mondai 3" in mondai:
-         return "Từ vựng / Ký tự"
-    elif "mondai 4" in mondai or "mondai 5" in mondai or "mondai 6" in mondai:
-         return "Ngữ pháp / Đọc"
-    return "Khác"
+    # Ưu tiên mapping theo keyword trước (vì Mondai 4, 5 có kỹ năng khác nhau tùy N1-N5)
+    if "tổng hợp" in mondai or "tougou" in mondai:
+        return "Hiểu tổng hợp"
+    elif "phát ngôn" in mondai or "biểu hiện" in mondai or "hyougen" in mondai:
+        return "Biểu hiện phát ngôn"
+    elif "phản xạ" in mondai or "sokuji" in mondai or "tức thời" in mondai:
+        return "Phản xạ nhanh"
+    elif "khái quát" in mondai or "tổng quan" in mondai or "gaiyou" in mondai:
+        return "Hiểu khái quát"
+    elif "điểm chính" in mondai or "point" in mondai:
+        return "Hiểu điểm chính"
+    elif "vấn đề" in mondai or "kadai" in mondai:
+        return "Hiểu vấn đề"
+        
+    # Fallback theo cấu trúc số ngầm định (Mang tính tương đối tùy cấp độ)
+    if "mondai 1" in mondai:
+        return "Hiểu vấn đề"
+    elif "mondai 2" in mondai:
+        return "Hiểu điểm chính"
+    elif "mondai 3" in mondai:
+        return "Hiểu khái quát"
+    elif "mondai 4" in mondai:
+        return "Phản xạ / Phát ngôn"
+    elif "mondai 5" in mondai:
+        return "Tổng hợp / Phản xạ"
+
+    return "Kỹ năng khác"
 
 
 def extract_json_from_llm_response(text: str) -> dict:
@@ -144,13 +154,30 @@ class CompetencyAnalysisService:
             skill_summary.append(f"- {skill}: {percentage:.1f}% (đúng {stats['correct']}/{stats['total']})")
             skill_percentages[skill] = round(percentage, 1)
             
-        # Truncate mistakes if too many to avoid massive prompt context
-        mistakes_to_send = mistakes_info[:15]
+        # Round-robin: Phân bổ rải đều các lỗi sai theo từng nhóm kỹ năng để AI có cái nhìn toàn diện
+        mistakes_to_send = []
+        if len(mistakes_info) > 15:
+            skill_groups = {}
+            for m in mistakes_info:
+                skill_groups.setdefault(m['skill'], []).append(m)
+            
+            while len(mistakes_to_send) < 15 and skill_groups:
+                for skill in list(skill_groups.keys()):
+                    if skill_groups[skill]:
+                        mistakes_to_send.append(skill_groups[skill].pop(0))
+                    else:
+                        del skill_groups[skill]
+                    if len(mistakes_to_send) == 15:
+                        break
+        else:
+            mistakes_to_send = mistakes_info
         
         # 5. Build Prompt
         system_prompt = (
             "Bạn là một chuyên gia đánh giá năng lực tiếng Nhật JLPT có tâm huyết và cực kỳ nghiêm khắc nhưng thấu hiểu. "
-            "Nhận xét của bạn luôn thẳng thắn, súc tích, đi thẳng vào vấn đề cốt lõi, không vòng vo hay sáo rỗng."
+            "Nhận xét của bạn luôn thẳng thắn, súc tích, đi thẳng vào vấn đề cốt lõi, không vòng vo hay sáo rỗng. "
+            "Khi phân tích, hãy chú ý đến các bẫy đặc trưng của JLPT như: thay đổi quyết định ở phút cuối, "
+            "sử dụng kính ngữ/khiêm nhường ngữ, hay các từ nối nghịch bộ (shikashi, demo, tokoroga)."
         )
         
         user_prompt = f"""DỮ LIỆU ĐẦU VÀO:
