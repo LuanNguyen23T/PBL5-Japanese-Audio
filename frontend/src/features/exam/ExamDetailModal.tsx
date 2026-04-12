@@ -688,7 +688,6 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  {qs.map(q => {
  const isActive = activeQId === q.question_id
  const hasAnswer = q.answers?.some(a => a.is_correct)
- const dirty = isDirtyQ(q.question_id)
  const hideQuestionText = isHideQuestionEnabled(q)
  return (
  <button
@@ -704,12 +703,6 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  }`}
  >
  {q.question_number ?? '?'}
- {hideQuestionText && (
- <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-blue-500 border-2 border-card" />
- )}
- {dirty && (
- <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 border-2 border-white rounded-full" />
- )}
  </button>
  )
  })}
