@@ -397,6 +397,8 @@ export const randomExamClient = {
     description?: string
     question_ids: string[]
     edited_questions?: RandomEditedQuestionPayload[]
+    time_limit?: number
+    is_published?: boolean
     audio_file_url?: string
   }): Promise<ExamResponse> =>
     apiFetch(`${API_BASE}/api/exams/random/create`, {

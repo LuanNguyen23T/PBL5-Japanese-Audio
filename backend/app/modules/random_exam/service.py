@@ -28,42 +28,57 @@ class RandomExamService:
 
     @staticmethod
     def _select_diverse_questions(pool: List[Question], count: int) -> List[Question]:
-        """Select questions with diversity across source exams and question numbers.
+        """Select questions in rounds with non-deterministic cross-exam mixing.
 
-        Strategy:
-        - Iterate by question_number rounds (1, 2, 3, ...)
-        - In each pick, prefer a question from a different source exam than previous pick
-        - Fill any remaining slots from leftover pool
+        Desired behavior:
+        - Continue selecting by question-number rounds until enough questions.
+        - Mix across many source exams but avoid rigid round-robin patterns.
+        - Allow occasional consecutive picks from the same exam naturally.
         """
         if count <= 0 or not pool:
             return []
 
-        by_number: Dict[int, List[Question]] = {}
+        # Group by question_number, then by source exam.
+        by_number_exam: Dict[int, Dict[str, List[Question]]] = {}
+        seen_exams: Set[str] = set()
+
         for q in pool:
             key = q.question_number if (q.question_number or 0) > 0 else 10**9
-            by_number.setdefault(key, []).append(q)
+            exam_key = str(q.exam_id)
+            seen_exams.add(exam_key)
+            by_number_exam.setdefault(key, {}).setdefault(exam_key, []).append(q)
 
-        for bucket in by_number.values():
-            random.shuffle(bucket)
+        for exam_map in by_number_exam.values():
+            for bucket in exam_map.values():
+                random.shuffle(bucket)
 
-        ordered_numbers = sorted(by_number.keys())
+        ordered_numbers = sorted(by_number_exam.keys())
         selected: List[Question] = []
-        selected_ids: Set[UUID] = set()
         last_exam_id: Optional[str] = None
 
         while len(selected) < count:
             progressed = False
+
             for number in ordered_numbers:
-                candidates = [q for q in by_number[number] if q.question_id not in selected_ids]
-                if not candidates:
+                exam_map = by_number_exam.get(number, {})
+                available_exams = [eid for eid, items in exam_map.items() if items]
+                if not available_exams:
                     continue
 
-                different_exam = [q for q in candidates if str(q.exam_id) != last_exam_id]
-                chosen = random.choice(different_exam or candidates)
+                # Weighted random: prefer switching exam, but keep natural randomness.
+                if last_exam_id and len(available_exams) > 1:
+                    switch_candidates = [eid for eid in available_exams if eid != last_exam_id]
+                    stay_candidates = [eid for eid in available_exams if eid == last_exam_id]
+                    weighted: List[str] = []
+                    weighted.extend(switch_candidates * 4)
+                    weighted.extend(stay_candidates * 2)
+                    chosen_exam = random.choice(weighted if weighted else available_exams)
+                else:
+                    chosen_exam = random.choice(available_exams)
 
+                chosen = exam_map[chosen_exam].pop(0)
                 selected.append(chosen)
-                selected_ids.add(chosen.question_id)
-                last_exam_id = str(chosen.exam_id)
+                last_exam_id = chosen_exam
                 progressed = True
 
                 if len(selected) >= count:
@@ -72,12 +87,7 @@ class RandomExamService:
             if not progressed:
                 break
 
-        if len(selected) < count:
-            remaining = [q for q in pool if q.question_id not in selected_ids]
-            random.shuffle(remaining)
-            selected.extend(remaining[: count - len(selected)])
-
-        return selected
+        return selected[:count]
 
     @staticmethod
     def _exam_matches_level(exam: Optional[Exam], jlpt_level: str) -> bool:

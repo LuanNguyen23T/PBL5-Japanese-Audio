@@ -123,6 +123,13 @@ class RandomExamCreateRequest(BaseModel):
         default_factory=list,
         description="Edited question data to persist when creating exam",
     )
+    time_limit: Optional[int] = Field(
+        default=60,
+        ge=1,
+        le=300,
+        description="Exam time limit in minutes",
+    )
+    is_published: bool = Field(False, description="Whether the created exam should be published")
     audio_file_url: Optional[str] = Field(None, description="Merged audio file URL")
 
 
