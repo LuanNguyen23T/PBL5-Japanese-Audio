@@ -63,6 +63,7 @@ class QuestionBase(BaseModel):
     script_text: Optional[str] = Field(None, description="Dialogue script shown to learners")
     explanation: Optional[str] = Field(None, description="Explanation for the correct answer")
     raw_transcript: Optional[str] = Field(None, description="Original segment transcription")
+    hide_question_text: bool = Field(False, description="Hide question prompt in test-taking UI")
     difficulty: Optional[int] = Field(None, description="IRT difficulty (1-5 stars)")
 
 
@@ -81,6 +82,7 @@ class QuestionUpdate(BaseModel):
     script_text: Optional[str] = None
     explanation: Optional[str] = None
     raw_transcript: Optional[str] = None
+    hide_question_text: Optional[bool] = None
     difficulty: Optional[int] = None
 
 

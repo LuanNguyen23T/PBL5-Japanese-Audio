@@ -19,6 +19,7 @@ class Question(Base):
     script_text = Column(Text, nullable=True)           # Dialogue script shown to learners
     explanation = Column(Text, nullable=True)           # Answer explanation
     raw_transcript = Column(Text, nullable=True)        # Original segment transcription
+    hide_question_text = Column(Boolean, default=False, nullable=False)  # Hide prompt in test UI
     difficulty = Column(Integer, default=None, nullable=True) # IRT difficulty (1-5 stars)
 
     # Relationships
