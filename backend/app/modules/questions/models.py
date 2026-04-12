@@ -16,12 +16,14 @@ class Question(Base):
     audio_clip_url = Column(Text, nullable=True)        # Optional clipped audio for this question
     question_text = Column(Text, nullable=True)
     image_url = Column(Text, nullable=True)             # Image-based question
+    script_text = Column(Text, nullable=True)           # Dialogue script shown to learners
     explanation = Column(Text, nullable=True)           # Answer explanation
+    raw_transcript = Column(Text, nullable=True)        # Original segment transcription
     difficulty = Column(Integer, default=None, nullable=True) # IRT difficulty (1-5 stars)
 
     # Relationships
     exam = relationship("Exam", back_populates="questions")
-    answers = relationship("Answer", back_populates="question", cascade="all, delete-orphan")
+    answers = relationship("Answer", back_populates="question", cascade="all, delete-orphan", order_by="Answer.order_index")
 
 
 class Answer(Base):

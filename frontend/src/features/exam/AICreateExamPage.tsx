@@ -68,10 +68,6 @@ function sortByMondaiAndQuestion<T extends { mondai_group: string; question_numb
   })
 }
 
-function composeExplanation(question: AIQuestion) {
-  return question.script_text?.trim() || ''
-}
-
 function buildAnswerOptions(count: 3 | 4, existing: AIQuestionOption[] = []): AIQuestionOption[] {
   return ANSWER_LABELS.slice(0, count).map((label, index) => ({
     label,
@@ -95,6 +91,7 @@ function inferDifficulty(question: AIQuestion) {
 }
 
 // ─── Audio Trimmer ──────────────────────────────────────────────────────────
+
 
 interface AudioTrimmerProps {
   audioFile: File | null
@@ -530,7 +527,7 @@ function Step1({
               <span className="font-semibold">Bell splitter</span> → dò `Bell_sound` và loại
               `Bell_2baku` →<span className="font-semibold"> PyDub</span> → cắt từng câu →
               <span className="font-semibold"> ReazonSpeech</span> → sinh script có dấu câu /
-              speaker label → tạo draft câu hỏi cục bộ để bạn rà lại và điền đáp án JLPT {level}.
+              đoạn hội thoại → tạo draft câu hỏi cục bộ để bạn rà lại và điền đáp án JLPT {level}.
             </p>
           </div>
         </div>
@@ -610,7 +607,7 @@ function Step2Processing({ jobId, onDone, onFailed }: Step2Props) {
     },
     {
       icon: <Brain className="w-4 h-4" />,
-      label: 'Áp format Reazon: dấu câu + 男：/女：',
+      label: 'Chuẩn hóa transcript từ audio đã cắt',
       key: 'refine',
     },
     {
@@ -791,6 +788,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
       question_number: nextNum,
       introduction: '',
       script_text: '',
+      explanation: '',
       question_text: '',
       difficulty: lastQ?.difficulty ?? 3,
       answers: buildAnswerOptions(4),
@@ -814,6 +812,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
       question_number: 1,
       introduction: '',
       script_text: '',
+      explanation: '',
       question_text: '',
       difficulty: 3,
       answers: buildAnswerOptions(4),
@@ -921,9 +920,9 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
       <div className="flex flex-col md:flex-row gap-6">
         {/* Left Sidebar: Question List */}
         <div className="w-full md:w-[300px] shrink-0 border border-border rounded-2xl bg-card overflow-hidden flex flex-col h-[700px] shadow-sm">
-          <div className="px-5 py-4 border-b border-border flex justify-between items-center bg-slate-50/50">
+          <div className="px-5 py-4 border-b border-border flex justify-between items-center bg-muted/30">
             <h3 className="text-xs font-bold text-muted-foreground">DANH SÁCH CÂU HỎI</h3>
-            <span className="text-[10px] font-bold bg-slate-200/60 text-muted-foreground px-2.5 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold bg-muted text-muted-foreground px-2.5 py-0.5 rounded-full border border-border">
               {editableQuestions.length} câu
             </span>
           </div>
@@ -988,7 +987,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
           {activeQ ? (
             <div className="flex-1 flex flex-col bg-card shadow-sm rounded-2xl border border-border overflow-hidden">
               {/* Header */}
-              <div className="px-6 py-4 border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center justify-between bg-slate-50/30">
+              <div className="px-6 py-4 border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center justify-between bg-muted/20">
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg font-bold text-card-foreground">Hiệu đính chi tiết</h2>
                   <div className="flex flex-wrap gap-2 items-center">
@@ -1077,7 +1076,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                       />
                       <button
                         onClick={() => setIsEditingAudio(true)}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-muted text-muted-foreground font-medium shrink-0 flex items-center gap-1.5 transition-colors"
+                        className="text-xs px-3 py-1.5 rounded-lg bg-muted hover:bg-muted text-muted-foreground font-medium shrink-0 flex items-center gap-1.5 transition-colors border border-border"
                       >
                         <Scissors className="w-3.5 h-3.5" /> Chỉnh sửa
                       </button>
@@ -1085,22 +1084,6 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                   ) : (
                     <p className="text-sm text-muted-foreground">Chưa có audio</p>
                   )}
-                </div>
-
-                {/* Question Text */}
-                <div>
-                  <label className="block text-sm font-bold text-card-foreground mb-2">
-                    Kịch bản thô (Raw Transcript)
-                  </label>
-                  <textarea
-                    value={activeQ.source_transcript || ''}
-                    onChange={(e) =>
-                      updateQuestion(activeQIdx, { source_transcript: e.target.value })
-                    }
-                    rows={4}
-                    placeholder="Nội dung nghe thô từ audio..."
-                    className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-slate-700 dark:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-relaxed"
-                  />
                 </div>
 
                 {/* Question Text */}
@@ -1121,15 +1104,28 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-bold text-card-foreground">
-                      Kịch bản hội thoại (Script)
+                      Nội dung trích xuất từ audio
                     </label>
                   </div>
                   <textarea
                     value={activeQ.script_text}
                     onChange={(e) => updateQuestion(activeQIdx, { script_text: e.target.value })}
                     rows={6}
-                    placeholder="Gõ nội dung script..."
+                    placeholder="Nội dung transcript sau khi trích xuất từ audio..."
                     className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium leading-relaxed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-card-foreground mb-2">
+                    Giải thích (Explanation)
+                  </label>
+                  <textarea
+                    value={activeQ.explanation || ''}
+                    onChange={(e) => updateQuestion(activeQIdx, { explanation: e.target.value })}
+                    rows={4}
+                    placeholder="Nhập giải thích cho câu hỏi và đáp án đúng..."
+                    className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-card text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
                 </div>
 
@@ -1250,7 +1246,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                     />
                     <div
                       onClick={() => imageInputRef.current?.click()}
-                      className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center bg-slate-50/50 hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer group"
+                      className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer group"
                     >
                       <ImageIcon className="w-8 h-8 text-muted-foreground group-hover:text-blue-500 mb-2 transition-colors" />
                       <p className="text-sm text-muted-foreground text-center">
@@ -1341,7 +1337,9 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
               : q.image_url && !q.image_url.startsWith('blob:')
                 ? q.image_url
                 : null,
-            explanation: composeExplanation(q),
+            script_text: q.script_text,
+            explanation: q.explanation?.trim() || '',
+            raw_transcript: q.source_transcript,
             difficulty: q.difficulty,
             answers: q.answers.map((a, i) => ({
               question_id: '',
@@ -1446,9 +1444,9 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
       <div className="flex flex-col md:flex-row gap-6 mt-4">
         {/* Left Sidebar: Question List */}
         <div className="w-full md:w-[300px] shrink-0 border border-border rounded-2xl bg-card overflow-hidden flex flex-col h-[600px] shadow-sm">
-          <div className="px-5 py-4 border-b border-border flex justify-between items-center bg-slate-50/50">
+          <div className="px-5 py-4 border-b border-border flex justify-between items-center bg-muted/30">
             <h3 className="text-xs font-bold text-muted-foreground">DANH SÁCH CÂU HỎI</h3>
-            <span className="text-[10px] font-bold bg-slate-200/60 text-muted-foreground px-2.5 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold bg-muted text-muted-foreground px-2.5 py-0.5 rounded-full border border-border">
               {questions.length} câu
             </span>
           </div>
@@ -1495,7 +1493,7 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
           {activeQ ? (
             <div className="flex-1 flex flex-col bg-card shadow-sm rounded-2xl border border-border overflow-hidden">
               {/* Header */}
-              <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-slate-50/30">
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20">
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg font-bold text-card-foreground">Chi tiết câu hỏi</h2>
                   <div className="flex gap-2">
@@ -1641,6 +1639,8 @@ export default function AICreateExamPage() {
     setEditableQuestions(
       result.questions.map((question) => ({
         ...question,
+        explanation: question.explanation || '',
+        answers: [...question.answers],
         difficulty: inferDifficulty(question),
       }))
     )
@@ -1675,7 +1675,9 @@ export default function AICreateExamPage() {
               : q.image_url && !q.image_url.startsWith('blob:')
                 ? q.image_url
                 : null,
-            explanation: composeExplanation(q),
+            script_text: q.script_text,
+            explanation: q.explanation?.trim() || '',
+            raw_transcript: q.source_transcript,
             difficulty: q.difficulty,
             answers: q.answers.map((a, i) => ({
               question_id: '',
@@ -1792,7 +1794,7 @@ export default function AICreateExamPage() {
                     setFailed(false)
                     setJobId('')
                   }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-muted text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors mx-auto"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors mx-auto shadow-lg shadow-blue-500/30"
                 >
                   <RotateCcw className="w-4 h-4" /> Thử lại
                 </button>

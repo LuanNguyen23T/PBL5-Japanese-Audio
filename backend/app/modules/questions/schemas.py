@@ -60,7 +60,9 @@ class QuestionBase(BaseModel):
     audio_clip_url: Optional[str] = Field(None, description="URL for the specific audio clip")
     question_text: Optional[str] = Field(None, description="Question text")
     image_url: Optional[str] = Field(None, description="Image URL for image-type questions")
+    script_text: Optional[str] = Field(None, description="Dialogue script shown to learners")
     explanation: Optional[str] = Field(None, description="Explanation for the correct answer")
+    raw_transcript: Optional[str] = Field(None, description="Original segment transcription")
     difficulty: Optional[int] = Field(None, description="IRT difficulty (1-5 stars)")
 
 
@@ -76,7 +78,9 @@ class QuestionUpdate(BaseModel):
     audio_clip_url: Optional[str] = None
     question_text: Optional[str] = None
     image_url: Optional[str] = None
+    script_text: Optional[str] = None
     explanation: Optional[str] = None
+    raw_transcript: Optional[str] = None
     difficulty: Optional[int] = None
 
 
@@ -95,6 +99,7 @@ class QuestionResponse(QuestionBase):
                 "audio_clip_url": "https://cdn.example.com/clips/q1.mp3",
                 "question_text": "男の人はいつ会議に出発しますか。",
                 "image_url": None,
+                "script_text": "男：じゃ、九時に出発しましょう。",
                 "explanation": "会話の中で「午前9時に出発」と言っています。"
             }
         }

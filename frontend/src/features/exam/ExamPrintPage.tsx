@@ -421,10 +421,21 @@ export default function ExamPrintPage() {
                           </div>
                         </div>
 
-                        {question.explanation && (
+                        {question.script_text && (
                           <div className="mt-5 rounded-2xl border border-border bg-card px-4 py-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
                               Script
+                            </p>
+                            <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
+                              {normalizePrintText(question.script_text)}
+                            </p>
+                          </div>
+                        )}
+
+                        {question.explanation && (
+                          <div className="mt-5 rounded-2xl border border-border bg-card px-4 py-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                              Giải thích
                             </p>
                             <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
                               {normalizePrintText(question.explanation)}

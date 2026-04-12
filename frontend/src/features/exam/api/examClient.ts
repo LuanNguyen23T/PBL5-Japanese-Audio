@@ -63,7 +63,9 @@ export interface QuestionPayload {
   audio_clip_url?: string
   question_text?: string
   image_url?: string | null
+  script_text?: string
   explanation?: string
+  raw_transcript?: string
   difficulty?: number
   answers?: AnswerPayload[]
 }
@@ -76,7 +78,9 @@ export interface QuestionResponse {
   audio_clip_url?: string
   question_text?: string
   image_url?: string | null
+  script_text?: string
   explanation?: string
+  raw_transcript?: string
   difficulty?: number
   answers: AnswerResponse[]
 }
@@ -191,6 +195,7 @@ export interface AIQuestion {
   question_number: number
   introduction?: string
   script_text: string
+  explanation?: string
   question_text: string
   difficulty?: number
   image_url?: string
