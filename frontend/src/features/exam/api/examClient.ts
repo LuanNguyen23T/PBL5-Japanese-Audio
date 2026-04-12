@@ -327,6 +327,28 @@ export interface RandomExamGenerateResponse {
   error?: string
 }
 
+export interface RandomEditedAnswerPayload {
+  content?: string
+  image_url?: string
+  is_correct: boolean
+  order_index?: number
+}
+
+export interface RandomEditedQuestionPayload {
+  question_id: string
+  mondai_group?: string
+  question_number?: number
+  audio_clip_url?: string
+  question_text?: string
+  image_url?: string
+  script_text?: string
+  explanation?: string
+  raw_transcript?: string
+  hide_question_text?: boolean
+  difficulty?: number
+  answers?: RandomEditedAnswerPayload[]
+}
+
 // --------------- Random Exam Generation API Methods ---------------
 
 export const randomExamClient = {
@@ -369,6 +391,7 @@ export const randomExamClient = {
     title: string
     description?: string
     question_ids: string[]
+    edited_questions?: RandomEditedQuestionPayload[]
     audio_file_url?: string
   }): Promise<ExamResponse> =>
     apiFetch(`${API_BASE}/api/exams/random/create`, {

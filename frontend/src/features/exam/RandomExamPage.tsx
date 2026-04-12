@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronRight, ChevronLeft, Check, Loader2, AlertCircle, Download,
-  Trash2, Star, Headphones,
+  Trash2, Star, Headphones, Brain, Plus,
 } from 'lucide-react'
 import { randomExamClient } from './api/examClient'
 import { toast } from '@/hooks/use-toast'
@@ -33,6 +33,7 @@ interface GeneratedQuestion {
   question_number: number
   audio_clip_url?: string
   question_text: string
+  hide_question_text?: boolean
   script_text: string
   explanation: string
   image_url?: string
@@ -72,14 +73,6 @@ const LEVELS: Level[] = ['N5', 'N4', 'N3', 'N2', 'N1']
 function extractMondaiNumber(label: string) {
   const match = label.match(/(\d+)/)
   return match ? Number(match[1]) : 999
-}
-
-function sortQuestions(items: GeneratedQuestion[]): GeneratedQuestion[] {
-  return [...items].sort((a, b) => {
-    const mondaiDiff = extractMondaiNumber(a.mondai_group) - extractMondaiNumber(b.mondai_group)
-    if (mondaiDiff !== 0) return mondaiDiff
-    return a.question_number - b.question_number
-  })
 }
 
 // ─── Step Indicator Component ─────────────────────────────────────────────
@@ -474,281 +467,335 @@ interface Step3Props {
 }
 
 function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
-  const [questions, setQuestions] = useState<GeneratedQuestion[]>(
-    sortQuestions(result.questions || [])
-  )
-  const [selectedId, setSelectedId] = useState<string | null>(
-    questions.length > 0 ? questions[0].question_id : null
-  )
-  const [editedData, setEditedData] = useState<Partial<GeneratedQuestion>>({})
+  const [questions, setQuestions] = useState<GeneratedQuestion[]>(result.questions || [])
+  const [activeQIdx, setActiveQIdx] = useState<number>(0)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
-  const selectedQuestion = questions.find(q => q.question_id === selectedId)
-  const groupedQuestions = questions.reduce((acc, q) => {
+  const updateQuestion = (idx: number, patch: Partial<GeneratedQuestion>) => {
+    setHasUnsavedChanges(true)
+    setQuestions(prev => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)))
+  }
+
+  const updateAnswer = (qIdx: number, aIdx: number, patch: { content?: string; is_correct?: boolean }) => {
+    const current = questions[qIdx]
+    if (!current) return
+    const nextAnswers = current.answers.map((a, i) =>
+      patch.is_correct !== undefined
+        ? { ...a, is_correct: i === aIdx }
+        : i === aIdx
+          ? { ...a, ...patch }
+          : a
+    )
+    updateQuestion(qIdx, { answers: nextAnswers })
+  }
+
+  const updateAnswerCount = (qIdx: number, count: 3 | 4) => {
+    const current = questions[qIdx]
+    if (!current) return
+    const base = [...current.answers]
+    if (base.length > count) {
+      updateQuestion(qIdx, { answers: base.slice(0, count) })
+      return
+    }
+    const next = [...base]
+    while (next.length < count) {
+      next.push({
+        answer_id: `temp-${qIdx}-${next.length}`,
+        content: '',
+        is_correct: false,
+        order_index: next.length,
+      })
+    }
+    updateQuestion(qIdx, { answers: next })
+  }
+
+  const activeQ = questions[activeQIdx]
+
+  const groupedQuestions = questions.reduce((acc, q, idx) => {
     const g = q.mondai_group || 'Khác'
     if (!acc[g]) acc[g] = []
-    acc[g].push(q)
+    acc[g].push({ q, idx })
     return acc
-  }, {} as Record<string, GeneratedQuestion[]>)
+  }, {} as Record<string, Array<{ q: GeneratedQuestion; idx: number }>>)
 
-  const handleSelectQuestion = (qId: string) => {
-    setSelectedId(qId)
-    setEditedData({})
-  }
+  const orderedGroupedQuestions = Object.entries(groupedQuestions).sort(
+    ([a], [b]) => extractMondaiNumber(a) - extractMondaiNumber(b)
+  )
 
-  const handleUpdateField = (field: string, value: any) => {
-    setEditedData(prev => ({ ...prev, [field]: value }))
-  }
-
-  const handleSaveChanges = () => {
-    if (!selectedQuestion) return
-    setQuestions(prev =>
-      prev.map(q =>
-        q.question_id === selectedId
-          ? { ...q, ...editedData }
-          : q
-      )
-    )
-    setEditedData({})
-    toast({ title: 'Thành công', description: 'Câu hỏi đã được cập nhật' })
-  }
-
-  const handleDeleteQuestion = () => {
-    if (!selectedQuestion) return
-    const next = questions.filter(q => q.question_id !== selectedQuestion.question_id)
+  const handleDeleteQuestion = (idx: number) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa câu hỏi này không?')) return
+    const next = questions.filter((_, i) => i !== idx)
     setQuestions(next)
-    setSelectedId(next[0]?.question_id ?? null)
-    setEditedData({})
+    setActiveQIdx(Math.max(0, idx - 1))
+    setHasUnsavedChanges(true)
     toast({ title: 'Đã xóa câu hỏi' })
   }
 
-  const displayQuestion = selectedQuestion
-    ? { ...selectedQuestion, ...editedData }
-    : null
+  const handleAddQuestion = (group: string) => {
+    const inGroup = questions.filter((q) => q.mondai_group === group)
+    const nums = inGroup.map((q) => q.question_number || 0).sort((a, b) => a - b)
+    let nextNum = 1
+    for (const n of nums) {
+      if (n === nextNum) nextNum += 1
+      if (n > nextNum) break
+    }
 
-  const isDirty = Object.keys(editedData).length > 0
+    const last = inGroup[inGroup.length - 1]
+    const newQuestion: GeneratedQuestion = {
+      question_id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      mondai_group: group,
+      question_number: nextNum,
+      audio_clip_url: last?.audio_clip_url,
+      question_text: '',
+      script_text: '',
+      explanation: '',
+      difficulty: last?.difficulty ?? 3,
+      answers: Array.from({ length: 4 }).map((_, i) => ({
+        answer_id: `temp-a-${Date.now()}-${i}`,
+        content: '',
+        is_correct: false,
+        order_index: i,
+      })),
+    }
+
+    setQuestions((prev) => {
+      const next = [...prev, newQuestion]
+      return next
+    })
+    setActiveQIdx(questions.length)
+    setHasUnsavedChanges(true)
+  }
+
+  const handleAddMondai = () => {
+    const numbers = questions.map((q) => extractMondaiNumber(q.mondai_group || '')).filter((n) => n < 999)
+    const nextMondai = (numbers.length ? Math.max(...numbers) : 0) + 1
+    handleAddQuestion(`Mondai ${nextMondai}`)
+  }
+
+  const handleSaveEdits = () => {
+    onEdit(questions)
+    setHasUnsavedChanges(false)
+    toast({ title: 'Đã lưu chỉnh sửa' })
+  }
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">Hiệu đính & Chỉnh sửa</h2>
+        <h2 className="text-xl font-bold text-gray-900">Hiệu đính chi tiết</h2>
         <span className="text-sm font-semibold text-blue-600">
           {questions.length} / {result.total_questions} câu
         </span>
       </div>
 
-      {/* Main Layout: 2 Panel */}
-      <div className="grid grid-cols-4 gap-4 flex-1 overflow-hidden" style={{ height: '70vh' }}>
-        {/* Left Panel: Questions List */}
-        <div className="col-span-1 flex flex-col border border-border rounded-xl bg-card overflow-hidden shadow-sm">
-          <div className="px-4 py-3 border-b border-border bg-muted/30 shrink-0">
-            <h3 className="font-bold text-xs text-muted-foreground uppercase tracking-wider">Danh sách câu hỏi</h3>
+      <div className="flex gap-4 lg:gap-5">
+        <div className="w-full md:w-64 lg:w-72 shrink-0 flex flex-col bg-card shadow-sm rounded-2xl border border-border overflow-hidden max-h-[calc(100vh-260px)] min-h-[680px]">
+          <div className="px-5 py-4 border-b border-border bg-muted/30">
+            <h3 className="text-sm font-bold text-card-foreground">Danh sách câu hỏi</h3>
             <p className="text-xs text-muted-foreground mt-1">{questions.length} câu</p>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {questions.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Không có câu hỏi
-              </div>
-            ) : (
-              Object.entries(groupedQuestions).map(([group, qs]) => (
-                <div key={group} className="px-3 py-3 border-b border-border last:border-b-0">
-                  <h4 className="text-xs font-bold text-muted-foreground mb-2">{group}</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {qs.map(q => (
-                      <button
-                        key={q.question_id}
-                        onClick={() => handleSelectQuestion(q.question_id)}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all ${
-                          selectedId === q.question_id
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
-                            : 'border-border bg-card text-muted-foreground hover:border-blue-300 hover:bg-accent'
-                        }`}
-                        title={`${group} - Câu ${q.question_number}`}
-                      >
-                        {q.question_number}
-                      </button>
-                    ))}
-                  </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            {orderedGroupedQuestions.map(([group, qs]) => (
+              <div key={group}>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-card-foreground">{group}</h4>
+                  <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
+                    {qs.length} câu
+                  </span>
                 </div>
-              ))
-            )}
+                <div className="flex flex-wrap gap-2.5">
+                  {qs.map(({ q, idx }) => (
+                    <button
+                      key={q.question_id}
+                      onClick={() => setActiveQIdx(idx)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-200 ${
+                        activeQIdx === idx
+                          ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 shadow-sm'
+                          : q.answers.some((a) => a.is_correct)
+                            ? 'border-emerald-500 text-emerald-600 bg-card dark:border-emerald-600 dark:text-emerald-400 hover:bg-emerald-50'
+                            : 'border-border text-muted-foreground bg-card hover:border-border'
+                      }`}
+                      title={`${q.mondai_group} - Câu ${q.question_number}`}
+                    >
+                      {q.question_number}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => handleAddQuestion(group)}
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 border-dashed border-border text-muted-foreground hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                    title="Thêm câu hỏi"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={handleAddMondai}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border px-4 py-3 text-sm font-bold text-muted-foreground hover:border-blue-500 hover:text-blue-500 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Thêm Mondai mới
+            </button>
           </div>
         </div>
 
-        {/* Right Panel: Edit Form */}
-        <div className="col-span-3 flex flex-col border border-border rounded-xl bg-card overflow-hidden shadow-sm">
-          <div className="px-6 py-4 border-b border-border bg-muted/20 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground bg-muted px-2.5 py-1 rounded-md border border-border">
-              <span>{displayQuestion?.mondai_group || 'N/A'}</span>
-              <span>-</span>
-              <span>Câu</span>
-              <button
-                onClick={() => {
-                  const current = displayQuestion?.question_number || 1
-                  handleUpdateField('question_number', Math.max(1, current - 1))
-                }}
-                className="w-5 h-5 rounded bg-card border border-border text-muted-foreground hover:bg-accent"
-                type="button"
-              >
-                -
-              </button>
-              <span className="w-5 text-center">{displayQuestion?.question_number || '?'}</span>
-              <button
-                onClick={() => {
-                  const current = displayQuestion?.question_number || 1
-                  handleUpdateField('question_number', current + 1)
-                }}
-                className="w-5 h-5 rounded bg-card border border-border text-muted-foreground hover:bg-accent"
-                type="button"
-              >
-                +
-              </button>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 rounded-xl border border-border bg-card px-2 py-1">
-                <span className="text-xs font-bold text-muted-foreground mr-1">IRT</span>
-                {[1, 2, 3, 4, 5].map(star => (
+        <div className="flex-1 flex flex-col h-[calc(100vh-260px)] min-h-[680px]">
+          {activeQ ? (
+            <div className="flex-1 flex flex-col bg-card shadow-sm rounded-2xl border border-border overflow-hidden">
+              <div className="px-6 py-4 border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center justify-between bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold bg-muted text-muted-foreground pl-2.5 pr-1 py-1 rounded-md flex items-center gap-1.5 border border-border">
+                    {activeQ.mondai_group}
+                    <span className="mx-0.5">-</span>
+                    Câu
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => updateQuestion(activeQIdx, { question_number: Math.max(1, (activeQ.question_number || 1) - 1) })}
+                        className="w-5 h-5 flex items-center justify-center bg-muted rounded text-muted-foreground hover:bg-slate-300 font-bold leading-none"
+                        type="button"
+                      >
+                        -
+                      </button>
+                      <span className="w-6 text-center">{activeQ.question_number}</span>
+                      <button
+                        onClick={() => updateQuestion(activeQIdx, { question_number: (activeQ.question_number || 1) + 1 })}
+                        className="w-5 h-5 flex items-center justify-center bg-muted rounded text-muted-foreground hover:bg-slate-300 font-bold leading-none"
+                        type="button"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-xl border border-border bg-card px-2 py-1">
+                    <span className="text-xs font-bold text-muted-foreground mr-1">IRT</span>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => updateQuestion(activeQIdx, { difficulty: star })}
+                        className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors hover:bg-accent ${(activeQ.difficulty || 3) >= star ? 'text-amber-400' : 'text-muted-foreground'}`}
+                      >
+                        <Star className={`w-4 h-4 ${(activeQ.difficulty || 3) >= star ? 'fill-current' : ''}`} />
+                      </button>
+                    ))}
+                  </div>
                   <button
-                    key={star}
-                    onClick={() => handleUpdateField('difficulty', star)}
-                    className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${(displayQuestion?.difficulty || 3) >= star ? 'text-amber-400' : 'text-muted-foreground'}`}
-                    type="button"
+                    onClick={() => handleDeleteQuestion(activeQIdx)}
+                    className="w-8 h-8 flex items-center justify-center shrink-0 rounded-lg text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                    title="Xóa câu hỏi này"
                   >
-                    <Star className={`w-3.5 h-3.5 ${(displayQuestion?.difficulty || 3) >= star ? 'fill-current' : ''}`} />
+                    <Trash2 className="w-4 h-4" />
                   </button>
-                ))}
+                </div>
               </div>
-              <button
-                onClick={handleDeleteQuestion}
-                type="button"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Xóa câu hỏi
-              </button>
-            </div>
-            {isDirty && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 px-2 py-0.5 rounded-full">
-                  Chưa lưu
-                </span>
-                <button
-                  onClick={handleSaveChanges}
-                  className="px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center gap-1"
-                >
-                  <Check className="w-3 h-3" /> Lưu
-                </button>
-                <button
-                  onClick={() => setEditedData({})}
-                  className="px-3 py-1.5 text-xs font-bold bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 transition"
-                >
-                  Hủy
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
-            {!displayQuestion ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <p className="text-sm">Chọn một câu hỏi để chỉnh sửa</p>
-              </div>
-            ) : (
-              <>
-                {/* Nội dung câu hỏi */}
+
+              <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-5">
+                {activeQ.audio_clip_url ? (
+                  <div className="bg-card border border-border rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Headphones className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm font-bold text-card-foreground">File âm thanh</span>
+                    </div>
+                    <audio controls src={activeQ.audio_clip_url} className="w-full h-10" />
+                  </div>
+                ) : null}
+
                 <div>
                   <label className="block text-sm font-bold text-card-foreground mb-2">Nội dung câu hỏi</label>
                   <textarea
-                    value={displayQuestion.question_text || ''}
-                    onChange={(e) => handleUpdateField('question_text', e.target.value)}
+                    value={activeQ.question_text || ''}
+                    onChange={(e) => updateQuestion(activeQIdx, { question_text: e.target.value })}
                     rows={2}
-                    placeholder="Nhập nội dung câu hỏi..."
-                    className="w-full px-4 py-3 border border-border rounded-lg text-sm bg-muted/30 text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-muted-foreground transition-shadow"
+                    placeholder="Gõ nội dung câu hỏi..."
+                    className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-card text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
                 </div>
 
-                {/* Script */}
                 <div>
-                  <label className="block text-sm font-bold text-card-foreground mb-2">Kịch bản (Tiếng Nhật)</label>
+                  <label className="text-sm font-bold text-card-foreground">Kịch bản hội thoại</label>
                   <textarea
-                    value={displayQuestion.script_text || ''}
-                    onChange={(e) => handleUpdateField('script_text', e.target.value)}
-                    rows={4}
-                    placeholder="Nhập nội dung hội thoại tiếng Nhật..."
-                    className="w-full px-4 py-3 border border-border rounded-lg text-sm bg-muted/30 text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium placeholder:text-muted-foreground transition-shadow"
+                    value={activeQ.script_text || ''}
+                    onChange={(e) => updateQuestion(activeQIdx, { script_text: e.target.value })}
+                    rows={6}
+                    placeholder="Kịch bản hội thoại..."
+                    className="mt-2 w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium leading-relaxed"
                   />
                 </div>
 
-                {/* Audio */}
-                {displayQuestion.audio_clip_url && (
-                  <div className="bg-muted/20 border border-border rounded-lg p-4">
-                    <label className="block text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1">
-                      <Headphones className="w-3.5 h-3.5" /> File âm thanh
-                    </label>
-                    <audio
-                      src={displayQuestion.audio_clip_url}
-                      controls
-                      preload="metadata"
-                      className="w-full h-8"
-                    />
-                  </div>
-                )}
-
-                {/* Giải thích */}
                 <div>
                   <label className="block text-sm font-bold text-card-foreground mb-2">Giải thích</label>
                   <textarea
-                    value={displayQuestion.explanation || ''}
-                    onChange={(e) => handleUpdateField('explanation', e.target.value)}
-                    rows={3}
-                    placeholder="Nhập giải thích cho câu hỏi..."
-                    className="w-full px-4 py-3 border border-border rounded-lg text-sm bg-muted/30 text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium placeholder:text-muted-foreground transition-shadow"
+                    value={activeQ.explanation || ''}
+                    onChange={(e) => updateQuestion(activeQIdx, { explanation: e.target.value })}
+                    rows={4}
+                    placeholder="Nhập giải thích cho câu hỏi và đáp án đúng..."
+                    className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-card text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
                 </div>
 
-                {/* Đáp án */}
                 <div>
-                  <label className="block text-sm font-bold text-card-foreground mb-3">
-                    Đáp án lựa chọn ({displayQuestion.answers?.length || 0})
-                  </label>
-                  <div className="space-y-2">
-                    {displayQuestion.answers?.map((ans, idx) => (
-                      <div key={ans.answer_id} className="flex items-center gap-3 group/answer">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <label className="block text-sm font-bold text-card-foreground">Đáp án lựa chọn</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Số đáp án</span>
+                      {[3, 4].map((count) => {
+                        const isActive = activeQ.answers.length === count
+                        return (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => updateAnswerCount(activeQIdx, count as 3 | 4)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                              isActive
+                                ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
+                                : 'border-border bg-card text-muted-foreground hover:border-border'
+                            }`}
+                          >
+                            {count} đáp án
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {activeQ.answers.map((a, ai) => (
+                      <div key={`${a.answer_id}-${ai}`} className="flex items-center gap-4 group/answer">
                         <button
-                          onClick={() => handleUpdateField('answers', displayQuestion.answers?.map(a => ({
-                            ...a,
-                            is_correct: a.answer_id === ans.answer_id
-                          })) || [])}
-                          className="flex flex-col items-center w-10 shrink-0"
+                          onClick={() => updateAnswer(activeQIdx, ai, { is_correct: true })}
+                          className="flex flex-col items-center justify-center w-12 shrink-0 transition-opacity opacity-70 hover:opacity-100"
+                          type="button"
                         >
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                            ans.is_correct
-                              ? 'border-emerald-500 bg-emerald-500'
-                              : 'border-border hover:border-blue-300'
-                          }`}>
-                            {ans.is_correct && <span className="w-2 h-2 rounded-full bg-card" />}
+                          <div
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                              a.is_correct ? 'border-emerald-500 bg-emerald-500' : 'border-border'
+                            }`}
+                          >
+                            {a.is_correct ? <span className="w-2.5 h-2.5 rounded-full bg-card" /> : null}
                           </div>
+                          {a.is_correct ? <span className="text-[10px] font-bold text-emerald-600 mt-1">Đúng</span> : null}
                         </button>
-                        <div className={`flex-1 border rounded-lg px-4 py-2.5 transition-colors ${
-                          ans.is_correct
-                            ? 'border-emerald-400 bg-emerald-50/50 dark:border-emerald-500/50 dark:bg-emerald-900/10'
-                            : 'border-border bg-muted/20 hover:border-border'
-                        }`}>
+                        <div
+                          className={`flex-1 border rounded-xl px-4 py-3 transition-colors ${
+                            a.is_correct
+                              ? 'border-emerald-400 bg-emerald-50/50 dark:border-emerald-500/50 dark:bg-emerald-900/10'
+                              : 'border-border bg-card hover:border-border'
+                          }`}
+                        >
                           <div className="flex items-center gap-3">
-                            <span className={`text-sm font-bold shrink-0 ${
-                              ans.is_correct ? 'text-emerald-600' : 'text-muted-foreground'
-                            }`}>
-                              {String.fromCharCode(65 + idx)}.
+                            <span className={`text-sm font-bold ${a.is_correct ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                              {ai + 1}.
                             </span>
                             <input
-                              type="text"
-                              value={ans.content || ''}
-                              onChange={(e) => handleUpdateField('answers', displayQuestion.answers?.map(a => ({
-                                ...a,
-                                content: a.answer_id === ans.answer_id ? e.target.value : a.content
-                              })) || [])}
-                              placeholder={`Nhập nội dung đáp án ${String.fromCharCode(65 + idx)}`}
-                              className="w-full text-sm bg-transparent border-0 outline-none text-card-foreground font-medium placeholder:text-muted-foreground"
+                              value={a.content || ''}
+                              onChange={(e) => updateAnswer(activeQIdx, ai, { content: e.target.value })}
+                              className="w-full text-sm bg-transparent border-0 outline-none text-card-foreground font-medium"
+                              placeholder="Nhập nội dung đáp án..."
                             />
                           </div>
                         </div>
@@ -756,16 +803,31 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
                     ))}
                   </div>
                 </div>
-              </>
-              )
-            }
-          </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center bg-card rounded-2xl border border-border">
+              <Brain className="w-12 h-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground font-medium">Chọn một câu hỏi ở danh sách bên trái để hiệu đính</p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center justify-end pt-4 border-t border-border">
+      <div className="flex items-center justify-end pt-3 border-t border-border">
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleSaveEdits}
+            disabled={!hasUnsavedChanges}
+            className={`px-6 py-2.5 rounded-lg font-semibold flex items-center gap-2 transition-colors ${
+              hasUnsavedChanges
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            <Check className="h-5 w-5" /> Lưu chỉnh sửa
+          </button>
           <button
             onClick={onBack}
             className="px-6 py-2.5 rounded-lg font-semibold flex items-center gap-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
@@ -775,6 +837,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
           <button
             onClick={() => {
               onEdit(questions)
+              setHasUnsavedChanges(false)
               onNext()
             }}
             className="px-6 py-2.5 rounded-lg font-semibold flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
@@ -824,6 +887,24 @@ function Step4_FinalReview({ result, onBack }: Step4Props) {
         title: result.title,
         description: `Sinh từ ${result.total_questions} câu ngẫu nhiên - ${result.level}`,
         question_ids: result.questions.map(q => q.question_id),
+        edited_questions: result.questions.map((q) => ({
+          question_id: q.question_id,
+          mondai_group: q.mondai_group,
+          question_number: q.question_number,
+          audio_clip_url: q.audio_clip_url,
+          question_text: q.question_text,
+          image_url: q.image_url,
+          script_text: q.script_text,
+          explanation: q.explanation,
+          difficulty: q.difficulty,
+          hide_question_text: q.hide_question_text,
+          answers: q.answers.map((a) => ({
+            content: a.content,
+            image_url: a.image_url,
+            is_correct: a.is_correct,
+            order_index: a.order_index,
+          })),
+        })),
         audio_file_url: mergedAudioUrl,
       })
 
@@ -949,9 +1030,9 @@ export default function RandomExamPage() {
   const handleStep4Back = () => setStep(3)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-4 px-3 lg:px-6">
+      <div className="mx-auto max-w-[1400px]">
+        <div className="mb-5">
           <button
             onClick={() => navigate('/exams')}
             className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2 mb-4"
@@ -962,11 +1043,11 @@ export default function RandomExamPage() {
           <p className="text-gray-700">Tạo bài thi bằng cách random hoá các câu hỏi hiện có trong hệ thống</p>
         </div>
 
-        <div className="mb-8 overflow-x-auto pb-4">
+        <div className="mb-5 overflow-x-auto pb-2">
           <StepIndicator step={step} />
         </div>
 
-        <div className="rounded-xl bg-white p-8 shadow-lg">
+        <div className="rounded-xl bg-white p-5 lg:p-6 shadow-lg">
           {step === 1 && (
             <Step1_Configuration config={config} onConfigChange={setConfig} onNext={handleStep1Next} />
           )}

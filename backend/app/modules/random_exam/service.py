@@ -27,6 +27,59 @@ class RandomExamService:
         self._jobs: Dict[str, Dict] = {}
 
     @staticmethod
+    def _select_diverse_questions(pool: List[Question], count: int) -> List[Question]:
+        """Select questions with diversity across source exams and question numbers.
+
+        Strategy:
+        - Iterate by question_number rounds (1, 2, 3, ...)
+        - In each pick, prefer a question from a different source exam than previous pick
+        - Fill any remaining slots from leftover pool
+        """
+        if count <= 0 or not pool:
+            return []
+
+        by_number: Dict[int, List[Question]] = {}
+        for q in pool:
+            key = q.question_number if (q.question_number or 0) > 0 else 10**9
+            by_number.setdefault(key, []).append(q)
+
+        for bucket in by_number.values():
+            random.shuffle(bucket)
+
+        ordered_numbers = sorted(by_number.keys())
+        selected: List[Question] = []
+        selected_ids: Set[UUID] = set()
+        last_exam_id: Optional[str] = None
+
+        while len(selected) < count:
+            progressed = False
+            for number in ordered_numbers:
+                candidates = [q for q in by_number[number] if q.question_id not in selected_ids]
+                if not candidates:
+                    continue
+
+                different_exam = [q for q in candidates if str(q.exam_id) != last_exam_id]
+                chosen = random.choice(different_exam or candidates)
+
+                selected.append(chosen)
+                selected_ids.add(chosen.question_id)
+                last_exam_id = str(chosen.exam_id)
+                progressed = True
+
+                if len(selected) >= count:
+                    break
+
+            if not progressed:
+                break
+
+        if len(selected) < count:
+            remaining = [q for q in pool if q.question_id not in selected_ids]
+            random.shuffle(remaining)
+            selected.extend(remaining[: count - len(selected)])
+
+        return selected
+
+    @staticmethod
     def _exam_matches_level(exam: Optional[Exam], jlpt_level: str) -> bool:
         if exam is None:
             return False
@@ -141,19 +194,13 @@ class RandomExamService:
                         f"Mondai 5 ({jlpt_level}): Using all {len(pool)} available questions (no randomization)"
                     )
                 else:
-                    # Random selection for other mondais
-                    selected = random.sample(pool, count)
+                    # Random selection for other mondais with cross-exam diversity.
+                    selected = self._select_diverse_questions(pool, count)
 
                 selected_questions.extend(selected)
                 mondai_summary[mondai_key] = len(selected)
 
-            # Sort questions by mondai and question number
-            selected_questions.sort(
-                key=lambda q: (
-                    int((q.mondai_group or "Mondai 0").split()[-1]),
-                    q.question_number or 0,
-                )
-            )
+            # Keep the generated order so frontend can preserve audio-friendly sequence.
 
             return {
                 "title": title,

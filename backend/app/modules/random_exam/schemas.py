@@ -92,12 +92,36 @@ class RandomExamJobStatusResponse(BaseModel):
 class RandomExamCreateRequest(BaseModel):
     """Request to create exam from random selection."""
 
+    class EditedAnswer(BaseModel):
+        content: Optional[str] = None
+        image_url: Optional[str] = None
+        is_correct: bool = False
+        order_index: Optional[int] = None
+
+    class EditedQuestion(BaseModel):
+        question_id: str
+        mondai_group: Optional[str] = None
+        question_number: Optional[int] = None
+        audio_clip_url: Optional[str] = None
+        question_text: Optional[str] = None
+        image_url: Optional[str] = None
+        script_text: Optional[str] = None
+        explanation: Optional[str] = None
+        raw_transcript: Optional[str] = None
+        hide_question_text: bool = False
+        difficulty: Optional[int] = None
+        answers: List["RandomExamCreateRequest.EditedAnswer"] = Field(default_factory=list)
+
     exam_id: Optional[str] = Field(None, description="Existing draft exam ID to finalize")
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
     questions: List[str] = Field(default_factory=list, description="List of question IDs")
     question_ids: List[str] = Field(
         default_factory=list, description="Alternative list of question IDs"
+    )
+    edited_questions: List[EditedQuestion] = Field(
+        default_factory=list,
+        description="Edited question data to persist when creating exam",
     )
     audio_file_url: Optional[str] = Field(None, description="Merged audio file URL")
 

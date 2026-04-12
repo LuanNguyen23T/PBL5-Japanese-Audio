@@ -306,10 +306,14 @@ async def create_exam_from_random(
     """
     try:
         question_ids = payload.question_ids or payload.questions
-        if not question_ids:
+        if not question_ids and not payload.edited_questions:
             raise ValueError("No questions provided")
 
-        logger.info(f"Creating exam with {len(question_ids)} questions")
+        logger.info(
+            "Creating exam with %s question refs and %s edited questions",
+            len(question_ids),
+            len(payload.edited_questions),
+        )
 
         # Step 1: Reuse existing draft exam if provided; otherwise create a new one.
         existing_exam: Exam | None = None
@@ -368,8 +372,12 @@ async def create_exam_from_random(
             db.add(new_exam)
             await db.flush()
 
-        # Step 3: Copy selected questions to new exam
-        logger.info(f"Copying {len(question_ids)} questions to new exam")
+        # Step 3: Copy selected questions to new exam (or build from edited payload)
+        logger.info("Preparing questions for new exam")
+
+        edited_map: dict[str, RandomExamCreateRequest.EditedQuestion] = {
+            q.question_id: q for q in payload.edited_questions
+        }
 
         source_ids: list[uuid.UUID] = []
         for raw_id in question_ids:
@@ -378,16 +386,15 @@ async def create_exam_from_random(
             except ValueError:
                 logger.warning(f"Invalid question id skipped: {raw_id}")
 
-        if not source_ids:
-            raise ValueError("No valid question ids provided")
-
-        source_questions = (
-            await db.execute(
-                select(Question)
-                .where(Question.question_id.in_(source_ids))
-                .options(selectinload(Question.answers))
-            )
-        ).scalars().all()
+        source_questions: list[Question] = []
+        if source_ids:
+            source_questions = (
+                await db.execute(
+                    select(Question)
+                    .where(Question.question_id.in_(source_ids))
+                    .options(selectinload(Question.answers))
+                )
+            ).scalars().all()
 
         source_index = {q.question_id: q for q in source_questions}
         ordered_source_questions: list[Question] = []
@@ -398,20 +405,17 @@ async def create_exam_from_random(
             else:
                 logger.warning(f"Source question not found: {src_id}")
 
-        def mondai_sort_key(q: Question) -> tuple[int, int]:
-            label = q.mondai_group or ""
-            match = re.search(r"(\d+)", label)
-            mondai_number = int(match.group(1)) if match else 999
-            question_number = q.question_number or 0
-            return mondai_number, question_number
-
-        ordered_source_questions.sort(key=mondai_sort_key)
+        processed_edited_ids: set[str] = set()
 
         mondai_counters: dict[str, int] = {}
         for src_question in ordered_source_questions:
             try:
+                edited = edited_map.get(str(src_question.question_id))
+
                 # Renumber questions from 1 within each mondai group for the new exam.
-                mondai_key = src_question.mondai_group or "Khác"
+                mondai_key = (
+                    edited.mondai_group if edited and edited.mondai_group else src_question.mondai_group
+                ) or "Khác"
                 next_question_number = mondai_counters.get(mondai_key, 0) + 1
                 mondai_counters[mondai_key] = next_question_number
 
@@ -419,35 +423,123 @@ async def create_exam_from_random(
                 new_question = Question(
                     question_id=uuid.uuid4(),
                     exam_id=new_exam_id,
-                    mondai_group=src_question.mondai_group,
+                    mondai_group=mondai_key,
                     question_number=next_question_number,
-                    audio_clip_url=src_question.audio_clip_url,
-                    question_text=src_question.question_text,
-                    image_url=src_question.image_url,
-                    script_text=src_question.script_text,
-                    explanation=src_question.explanation,
-                    raw_transcript=src_question.raw_transcript,
-                    hide_question_text=src_question.hide_question_text,
-                    difficulty=src_question.difficulty,
+                    audio_clip_url=(
+                        edited.audio_clip_url
+                        if edited and edited.audio_clip_url is not None
+                        else src_question.audio_clip_url
+                    ),
+                    question_text=(
+                        edited.question_text
+                        if edited and edited.question_text is not None
+                        else src_question.question_text
+                    ),
+                    image_url=(
+                        edited.image_url
+                        if edited and edited.image_url is not None
+                        else src_question.image_url
+                    ),
+                    script_text=(
+                        edited.script_text
+                        if edited and edited.script_text is not None
+                        else src_question.script_text
+                    ),
+                    explanation=(
+                        edited.explanation
+                        if edited and edited.explanation is not None
+                        else src_question.explanation
+                    ),
+                    raw_transcript=(
+                        edited.raw_transcript
+                        if edited and edited.raw_transcript is not None
+                        else src_question.raw_transcript
+                    ),
+                    hide_question_text=(
+                        edited.hide_question_text if edited else src_question.hide_question_text
+                    ),
+                    difficulty=(
+                        edited.difficulty
+                        if edited and edited.difficulty is not None
+                        else src_question.difficulty
+                    ),
                 )
                 db.add(new_question)
                 await db.flush()
 
                 # Copy answers
-                for src_answer in src_question.answers:
+                source_answers = (
+                    edited.answers
+                    if edited and edited.answers
+                    else [
+                        {
+                            "content": a.content,
+                            "image_url": a.image_url,
+                            "is_correct": a.is_correct,
+                            "order_index": a.order_index,
+                        }
+                        for a in src_question.answers
+                    ]
+                )
+
+                for idx, src_answer in enumerate(source_answers):
+                    content = src_answer.content if hasattr(src_answer, "content") else src_answer.get("content")
+                    image_url = src_answer.image_url if hasattr(src_answer, "image_url") else src_answer.get("image_url")
+                    is_correct = src_answer.is_correct if hasattr(src_answer, "is_correct") else src_answer.get("is_correct", False)
+                    order_index = src_answer.order_index if hasattr(src_answer, "order_index") else src_answer.get("order_index")
                     new_answer = Answer(
                         answer_id=uuid.uuid4(),
                         question_id=new_question.question_id,
-                        content=src_answer.content,
-                        image_url=src_answer.image_url,
-                        is_correct=src_answer.is_correct,
-                        order_index=src_answer.order_index,
+                        content=content,
+                        image_url=image_url,
+                        is_correct=bool(is_correct),
+                        order_index=order_index if order_index is not None else idx,
                     )
                     db.add(new_answer)
+
+                if edited:
+                    processed_edited_ids.add(edited.question_id)
 
             except Exception as e:
                 logger.error(f"Error copying question {src_question.question_id}: {str(e)}")
                 continue
+
+        # Append purely new questions from edited payload (no source question id / temp ids).
+        for edited in payload.edited_questions:
+            if edited.question_id in processed_edited_ids:
+                continue
+
+            mondai_key = edited.mondai_group or "Khác"
+            next_question_number = mondai_counters.get(mondai_key, 0) + 1
+            mondai_counters[mondai_key] = next_question_number
+
+            new_question = Question(
+                question_id=uuid.uuid4(),
+                exam_id=new_exam_id,
+                mondai_group=mondai_key,
+                question_number=next_question_number,
+                audio_clip_url=edited.audio_clip_url,
+                question_text=edited.question_text,
+                image_url=edited.image_url,
+                script_text=edited.script_text,
+                explanation=edited.explanation,
+                raw_transcript=edited.raw_transcript,
+                hide_question_text=edited.hide_question_text,
+                difficulty=edited.difficulty,
+            )
+            db.add(new_question)
+            await db.flush()
+
+            for idx, answer in enumerate(edited.answers):
+                new_answer = Answer(
+                    answer_id=uuid.uuid4(),
+                    question_id=new_question.question_id,
+                    content=answer.content,
+                    image_url=answer.image_url,
+                    is_correct=bool(answer.is_correct),
+                    order_index=answer.order_index if answer.order_index is not None else idx,
+                )
+                db.add(new_answer)
 
         await db.commit()
         await db.refresh(new_exam)
