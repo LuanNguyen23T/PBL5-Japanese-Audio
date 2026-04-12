@@ -66,6 +66,7 @@ export interface QuestionPayload {
   script_text?: string
   explanation?: string
   raw_transcript?: string
+  hide_question_text?: boolean
   difficulty?: number
   answers?: AnswerPayload[]
 }
@@ -81,6 +82,7 @@ export interface QuestionResponse {
   script_text?: string
   explanation?: string
   raw_transcript?: string
+  hide_question_text?: boolean
   difficulty?: number
   answers: AnswerResponse[]
 }
@@ -206,6 +208,7 @@ export interface AIQuestion {
   source_start_time?: number
   source_end_time?: number
   source_transcript?: string
+  hide_question_text?: boolean
   answers: AIQuestionOption[]
 }
 

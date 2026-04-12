@@ -52,6 +52,7 @@ const LEVEL_COLORS: Record<Level, string> = {
 
 const STEP_LABELS = ['Upload & Cấu hình', 'AI Đang xử lý', 'Review kết quả', 'Xác nhận & Lưu']
 const ANSWER_LABELS = ['A', 'B', 'C', 'D']
+const MONDAI_OPTIONS = [1, 2, 3, 4, 5]
 
 function extractMondaiNumber(label: string) {
   const match = label.match(/(\d+)/)
@@ -762,6 +763,26 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
     updateQuestion(qIdx, { answers: nextAnswers })
   }
 
+  const hiddenMondaiNumbers = Array.from(
+    new Set(
+      editableQuestions
+        .filter((q) => q.hide_question_text)
+        .map((q) => extractMondaiNumber(q.mondai_group))
+        .filter((n) => n > 0)
+    )
+  ).sort((a, b) => a - b)
+
+  const toggleHideQuestionByMondai = (mondaiNumber: number) => {
+    const shouldHide = !hiddenMondaiNumbers.includes(mondaiNumber)
+    setEditableQuestions(
+      editableQuestions.map((q) =>
+        extractMondaiNumber(q.mondai_group) === mondaiNumber
+          ? { ...q, hide_question_text: shouldHide }
+          : q
+      )
+    )
+  }
+
   const handleAddQuestion = (group: string) => {
     const questionsInGroup = editableQuestions.filter((q) => q.mondai_group === group)
     const nums = questionsInGroup.map((q) => q.question_number).sort((a, b) => a - b)
@@ -788,8 +809,10 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
       question_number: nextNum,
       introduction: '',
       script_text: '',
+      source_transcript: '',
       explanation: '',
       question_text: '',
+      hide_question_text: hiddenMondaiNumbers.includes(extractMondaiNumber(group)),
       difficulty: lastQ?.difficulty ?? 3,
       answers: buildAnswerOptions(4),
       audio_url: lastQ?.audio_url || undefined,
@@ -812,8 +835,10 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
       question_number: 1,
       introduction: '',
       script_text: '',
+      source_transcript: '',
       explanation: '',
       question_text: '',
+      hide_question_text: false,
       difficulty: 3,
       answers: buildAnswerOptions(4),
     }
@@ -928,6 +953,34 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-8">
+            <div className="rounded-xl border border-border bg-muted/20 p-3.5">
+              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+                Ẩn phần câu hỏi theo Mondai
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Chọn Mondai cần ẩn nội dung câu hỏi khi làm bài thi (chỉ hiện A/B/C/D).
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {MONDAI_OPTIONS.map((mondaiNumber) => {
+                  const selected = hiddenMondaiNumbers.includes(mondaiNumber)
+                  return (
+                    <button
+                      key={mondaiNumber}
+                      type="button"
+                      onClick={() => toggleHideQuestionByMondai(mondaiNumber)}
+                      className={`h-8 min-w-8 rounded-full border px-2.5 text-xs font-bold transition-colors ${
+                        selected
+                          ? 'border-blue-500 bg-blue-500 text-white'
+                          : 'border-border bg-card text-muted-foreground hover:border-blue-300'
+                      }`}
+                    >
+                      {mondaiNumber}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {orderedGroupedQuestions.map(([group, qs]) => (
               <div key={group}>
                 <div className="flex items-center justify-between mb-4">
@@ -956,8 +1009,12 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
        : 'border-border text-muted-foreground bg-card hover:border-border dark:text-muted-foreground '
  }
  `}
+                        title={q.hide_question_text ? 'Ẩn câu hỏi khi thi' : 'Hiện câu hỏi khi thi'}
                       >
                         {q.question_number}
+                        {q.hide_question_text && (
+                          <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-blue-500 border-2 border-card" />
+                        )}
                       </button>
                     )
                   })}
@@ -1086,8 +1143,68 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                   )}
                 </div>
 
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-bold text-card-foreground">
+                      Kịch bản gốc (ReazonSpeech)
+                    </label>
+                  </div>
+                  <textarea
+                    value={activeQ.source_transcript || ''}
+                    onChange={(e) =>
+                      updateQuestion(activeQIdx, { source_transcript: e.target.value })
+                    }
+                    rows={5}
+                    placeholder="Toàn bộ transcript gốc lấy từ ReazonSpeech cho đoạn audio này..."
+                    className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-card text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-relaxed"
+                  />
+                </div>
+
                 {/* Question Text */}
                 <div>
+                  <div className="mb-3 rounded-xl border border-border bg-muted/20 p-3.5">
+                    <p className="text-sm font-bold text-card-foreground">Hiển thị khi làm bài thi</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Với Mondai cần nghe và chọn đáp án nhanh (ví dụ Mondai 3/4), bạn có thể ẩn
+                      phần nội dung câu hỏi.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateQuestion(activeQIdx, { hide_question_text: false })}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${
+                          !activeQ.hide_question_text
+                            ? 'border-emerald-500 bg-emerald-500 text-white'
+                            : 'border-border bg-card text-muted-foreground hover:border-emerald-300'
+                        }`}
+                      >
+                        Hiện câu hỏi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateQuestion(activeQIdx, { hide_question_text: true })}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${
+                          activeQ.hide_question_text
+                            ? 'border-blue-500 bg-blue-500 text-white'
+                            : 'border-border bg-card text-muted-foreground hover:border-blue-300'
+                        }`}
+                      >
+                        Chỉ hiện A/B/C/D
+                      </button>
+                      {extractMondaiNumber(activeQ.mondai_group) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleHideQuestionByMondai(extractMondaiNumber(activeQ.mondai_group))
+                          }
+                          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-bold text-muted-foreground hover:border-blue-300"
+                        >
+                          Áp dụng cho toàn {activeQ.mondai_group}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <label className="block text-sm font-bold text-card-foreground mb-2">
                     Nội dung câu hỏi (Question)
                   </label>
@@ -1104,14 +1221,14 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-bold text-card-foreground">
-                      Nội dung trích xuất từ audio
+                      Kịch bản hội thoại
                     </label>
                   </div>
                   <textarea
                     value={activeQ.script_text}
                     onChange={(e) => updateQuestion(activeQIdx, { script_text: e.target.value })}
                     rows={6}
-                    placeholder="Nội dung transcript sau khi trích xuất từ audio..."
+                    placeholder="Kịch bản hội thoại sau khi AI chuẩn hóa..."
                     className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-card-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium leading-relaxed"
                   />
                 </div>
@@ -1170,13 +1287,9 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                           >
                             {a.is_correct && <span className="w-2.5 h-2.5 rounded-full bg-card" />}
                           </div>
-                          {a.is_correct ? (
+                          {a.is_correct && (
                             <span className="text-[10px] font-bold text-emerald-600 mt-1">
                               Đúng
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium text-muted-foreground mt-1 opacity-0 group-hover/answer:opacity-100 transition-opacity">
-                              Chọn
                             </span>
                           )}
                         </button>
@@ -1340,6 +1453,7 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
             script_text: q.script_text,
             explanation: q.explanation?.trim() || '',
             raw_transcript: q.source_transcript,
+            hide_question_text: !!q.hide_question_text,
             difficulty: q.difficulty,
             answers: q.answers.map((a, i) => ({
               question_id: '',
@@ -1526,6 +1640,15 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
                   )}
                 </div>
 
+                <div>
+                  <label className="block text-sm font-bold text-card-foreground mb-2">
+                    Kịch bản gốc (ReazonSpeech)
+                  </label>
+                  <div className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-card text-card-foreground leading-relaxed whitespace-pre-wrap">
+                    {activeQ.source_transcript || '(Không có kịch bản gốc)'}
+                  </div>
+                </div>
+
                 {/* Question Text */}
                 <div>
                   <label className="block text-sm font-bold text-card-foreground mb-2">
@@ -1533,6 +1656,15 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
                   </label>
                   <div className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-card-foreground font-medium leading-relaxed">
                     {activeQ.question_text || '(Không có nội dung câu hỏi)'}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-card-foreground mb-2">
+                    Kịch bản hội thoại
+                  </label>
+                  <div className="w-full px-4 py-3 border border-border rounded-xl text-sm bg-muted text-card-foreground font-medium leading-relaxed whitespace-pre-wrap">
+                    {activeQ.script_text || '(Không có kịch bản hội thoại)'}
                   </div>
                 </div>
 
@@ -1640,6 +1772,7 @@ export default function AICreateExamPage() {
       result.questions.map((question) => ({
         ...question,
         explanation: question.explanation || '',
+        hide_question_text: !!question.hide_question_text,
         answers: [...question.answers],
         difficulty: inferDifficulty(question),
       }))
@@ -1678,6 +1811,7 @@ export default function AICreateExamPage() {
             script_text: q.script_text,
             explanation: q.explanation?.trim() || '',
             raw_transcript: q.source_transcript,
+            hide_question_text: !!q.hide_question_text,
             difficulty: q.difficulty,
             answers: q.answers.map((a, i) => ({
               question_id: '',

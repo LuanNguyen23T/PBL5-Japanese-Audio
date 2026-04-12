@@ -31,6 +31,10 @@ function formatCountdown(totalSeconds: number) {
  return [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0')).join(':')
 }
 
+function getOptionLabel(index: number) {
+	return String.fromCharCode(65 + index)
+}
+
 function getQuestionStatus(question: TestQuestion, answers: AnswerMap, reviews: ReviewMap) {
  if (reviews[question.question_id]) return 'review'
  if (answers[question.question_id]) return 'answered'
@@ -414,11 +418,13 @@ export function TakeExamContent({
  </div>
  )}
 
+ {!activeQuestion.hide_question_text && (
  <div className="rounded-[24px] border border-border bg-card px-6 py-6 shadow-sm">
  <p className="text-base leading-[1.7] text-foreground sm:text-lg">
  {activeQuestion.question_text || 'Câu hỏi chưa có nội dung'}
  </p>
  </div>
+ )}
 
  {activeQuestion.image_url && (
  <div className="mt-6 overflow-hidden rounded-[24px] border border-border bg-card">
@@ -454,7 +460,7 @@ export function TakeExamContent({
  : 'border-border text-muted-foreground',
  ].join(' ')}
  >
- {index + 1}
+ {getOptionLabel(index)}
  </span>
  <div className="flex-1">
  <p className="text-sm leading-[1.6] text-foreground sm:text-base">

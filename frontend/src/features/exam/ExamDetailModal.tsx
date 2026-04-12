@@ -20,6 +20,14 @@ type EditableQuestionPatch = Partial<QuestionResponse> & {
  image_file?: File | null
 }
 
+const MONDAI_OPTIONS = [1, 2, 3, 4, 5]
+
+function extractMondaiNumber(label?: string | null) {
+ if (!label) return -1
+ const match = label.match(/(\d+)/)
+ return match ? Number(match[1]) : -1
+}
+
 function buildCloudinaryDownloadUrl(value?: string | null) {
  if (!value) return null
  if (value.includes('res.cloudinary.com') && value.includes('/upload/')) {
@@ -288,6 +296,35 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  setEditedQuestions(prev => ({ ...prev, [qId]: { ...(prev[qId] ?? {}), ...patch } }))
  }
 
+ const isHideQuestionEnabled = (question: QuestionResponse) => {
+ const patched = editedQuestions[question.question_id]
+ if (patched && Object.prototype.hasOwnProperty.call(patched, 'hide_question_text')) {
+ return !!patched.hide_question_text
+ }
+ return !!question.hide_question_text
+ }
+
+ const hiddenMondaiNumbers = Array.from(
+ new Set(
+ questions
+ .filter((q) => isHideQuestionEnabled(q))
+ .map((q) => extractMondaiNumber(q.mondai_group))
+ .filter((n) => n > 0)
+ )
+ ).sort((a, b) => a - b)
+
+ const toggleHideQuestionByMondai = (mondaiNumber: number) => {
+ const shouldHide = !hiddenMondaiNumbers.includes(mondaiNumber)
+ setEditedQuestions((prev) => {
+ const next = { ...prev }
+ for (const q of questions) {
+ if (extractMondaiNumber(q.mondai_group) !== mondaiNumber) continue
+ next[q.question_id] = { ...(next[q.question_id] ?? {}), hide_question_text: shouldHide }
+ }
+ return next
+ })
+ }
+
  const patchAnswer = (qId: string, aIdx: number, patch: Partial<AnswerResponse>) => {
  const q = questions.find(x => x.question_id === qId)!
  const base = editedQuestions[qId] ?? {}
@@ -432,6 +469,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  question_text: '',
  script_text: '',
  raw_transcript: '',
+ hide_question_text: hiddenMondaiNumbers.includes(extractMondaiNumber(group)),
  explanation: '',
  })
 
@@ -612,6 +650,34 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  </span>
  </div>
  <div className="flex-1 overflow-y-auto p-4 space-y-6">
+ <div className="rounded-xl border border-border bg-muted/20 p-3.5">
+ <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+ Ẩn phần câu hỏi theo Mondai
+ </p>
+ <p className="mt-1 text-xs text-muted-foreground">
+ Chọn Mondai cần ẩn nội dung câu hỏi khi làm bài thi (chỉ hiện A/B/C/D).
+ </p>
+ <div className="mt-3 flex flex-wrap gap-2">
+ {MONDAI_OPTIONS.map((mondaiNumber) => {
+ const selected = hiddenMondaiNumbers.includes(mondaiNumber)
+ return (
+ <button
+ key={mondaiNumber}
+ type="button"
+ onClick={() => toggleHideQuestionByMondai(mondaiNumber)}
+ className={`h-8 min-w-8 rounded-full border px-2.5 text-xs font-bold transition-colors ${
+ selected
+ ? 'border-blue-500 bg-blue-500 text-white'
+ : 'border-border bg-card text-muted-foreground hover:border-blue-300'
+ }`}
+ >
+ {mondaiNumber}
+ </button>
+ )
+ })}
+ </div>
+ </div>
+
  {Object.entries(groupedQuestions).map(([group, qs]) => (
  <div key={group}>
  <div className="flex items-center justify-between mb-3">
@@ -623,11 +689,12 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  const isActive = activeQId === q.question_id
  const hasAnswer = q.answers?.some(a => a.is_correct)
  const dirty = isDirtyQ(q.question_id)
+ const hideQuestionText = isHideQuestionEnabled(q)
  return (
  <button
  key={q.question_id}
  onClick={() => setActiveQId(q.question_id)}
- title={q.question_text || `Câu ${q.question_number}`}
+ title={hideQuestionText ? 'Ẩn câu hỏi khi thi' : 'Hiện câu hỏi khi thi'}
  className={`relative w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-200
  ${isActive
  ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 shadow-sm'
@@ -637,6 +704,9 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  }`}
  >
  {q.question_number ?? '?'}
+ {hideQuestionText && (
+ <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-blue-500 border-2 border-card" />
+ )}
  {dirty && (
  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 border-2 border-white rounded-full" />
  )}
@@ -806,7 +876,6 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  />
  </div>
 
- {/* Question Text: Content */}
  <div>
  <label className="block text-sm font-bold text-card-foreground mb-2 flex items-center gap-1.5">
  <FileText className="w-3.5 h-3.5 text-muted-foreground" />
