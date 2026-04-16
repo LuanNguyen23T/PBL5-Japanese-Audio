@@ -142,10 +142,15 @@ export const examClient = {
 
   deleteExam: (examId: string) => apiFetch(`${API_BASE}/api/exams/${examId}`, { method: 'DELETE' }),
 
-  listExams: (meOnly: boolean = false) =>
-    apiFetch(`${API_BASE}/api/exams${meOnly ? '?me_only=true' : ''}`)
+  listExams: (meOnly: boolean = false, publishedOnly: boolean = false) => {
+    const params = new URLSearchParams()
+    if (meOnly) params.append('me_only', 'true')
+    if (publishedOnly) params.append('published_only', 'true')
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return apiFetch(`${API_BASE}/api/exams${qs}`)
       .then((r) => handleResponse<ExamListResponse>(r))
-      .then((data) => data.exams),
+      .then((data) => data.exams)
+  },
 
   createQuestion: (data: QuestionPayload) =>
     apiFetch(`${API_BASE}/api/questions`, {

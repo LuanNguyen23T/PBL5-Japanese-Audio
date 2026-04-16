@@ -19,7 +19,7 @@ function Sidebar() {
   const navLinks = [
     { to: '/dashboard', label: 'Tổng quan', icon: LayoutDashboard },
     { to: '/create', label: 'Tạo đề mới', icon: PlusCircle },
-    { to: '/question-bank', label: 'Ngân hàng câu hỏi', icon: BookOpen },
+    { to: '/question-bank', label: 'Ngân hàng đề thi', icon: BookOpen },
     ...(isAdmin ? [{ to: '/admin/users', label: 'Quản lý người dùng', icon: Users }] : []),
     ...(isAdmin ? [{ to: '/admin/audio-library', label: 'Tài nguyên nghe', icon: FileAudio }] : []),
     { to: '/settings', label: 'Cài đặt', icon: Settings },

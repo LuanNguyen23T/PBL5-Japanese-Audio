@@ -20,8 +20,8 @@ const ADMIN_SHORTCUTS = [
     color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400',
   },
   {
-    title: 'Ngân hàng câu hỏi',
-    description: 'Xem và quản lý toàn bộ câu hỏi luyện nghe',
+    title: 'Ngân hàng đề thi',
+    description: 'Xem và quản lý toàn bộ đề thi được xuất bản',
     icon: BookOpen,
     path: '/question-bank',
     color: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400',
@@ -73,8 +73,8 @@ const ADMIN_SHORTCUTS = [
 
 const USER_SHORTCUTS = [
   {
-    title: 'Ngân hàng câu hỏi',
-    description: 'Xem và luyện tập với các câu hỏi nghe',
+    title: 'Ngân hàng đề thi',
+    description: 'Xem tất cả đề thi luyện nghe được xuất bản',
     icon: BookOpen,
     path: '/question-bank',
     color: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400',

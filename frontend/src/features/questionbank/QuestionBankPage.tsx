@@ -1,415 +1,272 @@
-import { useState } from 'react'
-import {
- Search,
- ChevronDown,
- RotateCcw,
- Upload,
- Plus,
- ChevronLeft,
- ChevronRight,
- Headphones,
- MoreHorizontal,
-} from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { BookOpen, Clock, Layers, FileText, CheckCircle2, Search, Filter, Calendar } from 'lucide-react'
+import { examClient, ExamResponse } from '../exam/api/examClient'
+import ExamDetailModal from '../exam/ExamDetailModal'
 
-type Level = 'N1' | 'N2' | 'N3' | 'N4' | 'N5'
-type Status = 'published' | 'draft' | 'needs_revision'
-
-interface Question {
- id: string
- title: string
- level: Level
- topic: string
- createdAt: string
- status: Status
+// ─── Skeleton Card ───────────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 animate-pulse">
+      <div className="flex items-start justify-between mb-3">
+        <div className="h-4 bg-muted rounded w-3/4" />
+        <div className="h-5 w-16 bg-muted rounded-full" />
+      </div>
+      <div className="h-3 bg-muted rounded w-1/2 mb-4" />
+      <div className="flex gap-3">
+        <div className="h-3 bg-muted rounded w-20" />
+        <div className="h-3 bg-muted rounded w-20" />
+      </div>
+    </div>
+  )
 }
 
-const MOCK_DATA: Question[] = [
- {
- id: 'Q-2025-8842',
- title: 'Sắp xếp lịch họp kinh doanh',
- level: 'N2',
- topic: 'Hiểu nhiệm vụ',
- createdAt: '24/10/2025',
- status: 'published',
- },
- {
- id: 'Q-2025-8845',
- title: 'Bài giảng giáo sư (Môi trường)',
- level: 'N1',
- topic: 'Hiểu điểm chính',
- createdAt: '23/10/2025',
- status: 'draft',
- },
- {
- id: 'Q-2025-8812',
- title: 'Nghe dự báo thời tiết mang dù',
- level: 'N3',
- topic: 'Diễn đạt lời nói',
- createdAt: '22/10/2025',
- status: 'published',
- },
- {
- id: 'Q-2025-8801',
- title: 'Thông báo nhà ga (Tàu trễ)',
- level: 'N4',
- topic: 'Phản xạ nhanh',
- createdAt: '20/10/2025',
- status: 'needs_revision',
- },
- {
- id: 'Q-2025-8799',
- title: 'Gọi món tại nhà hàng',
- level: 'N5',
- topic: 'Hiểu nhiệm vụ',
- createdAt: '19/10/2025',
- status: 'published',
- },
-]
-
-const LEVEL_COLORS: Record<Level, string> = {
- N1: 'bg-blue-600',
- N2: 'bg-teal-500',
- N3: 'bg-orange-400',
- N4: 'bg-orange-500',
- N5: 'bg-green-500',
+// ─── Exam Card ───────────────────────────────────────────────────────────────
+interface ExamCardProps {
+  exam: ExamResponse
+  onClick: () => void
 }
 
-const STATUS_CONFIG: Record<Status, { label: string; className: string }> = {
- published: {
- label: 'Đã xuất bản',
- className: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
- },
- draft: {
- label: 'Bản nháp',
- className: 'bg-amber-50 text-amber-700 border border-amber-200',
- },
- needs_revision: {
- label: 'Cần sửa đổi',
- className: 'bg-rose-50 text-rose-700 border border-rose-200',
- },
+function ExamCard({ exam, onClick }: ExamCardProps) {
+  const safeTitle = typeof exam.title === 'string' && exam.title.trim() ? exam.title : 'Đề chưa đặt tên'
+  const date = new Date(exam.created_at || '').toLocaleDateString('vi-VN', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  })
+
+  return (
+    <button
+      onClick={onClick}
+      className="group text-left w-full bg-card border border-border rounded-xl p-5 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md dark:hover:shadow-none transition-all"
+    >
+      {/* Top row */}
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <h3 className="text-sm font-semibold text-card-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2">
+          {safeTitle}
+        </h3>
+        <span className="flex items-center gap-1 shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 className="w-3 h-3" /> Xuất bản
+        </span>
+      </div>
+
+      {/* Description */}
+      {exam.description && (
+        <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{exam.description}</p>
+      )}
+
+      {/* Meta */}
+      <div className="flex items-center gap-4 mt-3 flex-wrap">
+        {exam.time_limit != null && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="w-3.5 h-3.5" />{exam.time_limit} phút
+          </span>
+        )}
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <FileText className="w-3.5 h-3.5" />{date}
+        </span>
+      </div>
+    </button>
+  )
 }
 
+// ─── Main Page ───────────────────────────────────────────────────────────────
 export default function QuestionBankPage() {
- const [search, setSearch] = useState('')
- const [levelFilter, setLevelFilter] = useState('')
- const [topicFilter, setTopicFilter] = useState('')
- const [dateFilter, setDateFilter] = useState('')
- const [currentPage, setCurrentPage] = useState(1)
- const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const navigate = useNavigate()
+  const [exams, setExams] = useState<ExamResponse[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [selected, setSelected] = useState<ExamResponse | null>(null)
 
- const totalPages = 25
- const totalItems = 128
+  const [searchQuery, setSearchQuery] = useState('')
+  const [levelFilter, setLevelFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('all')
 
- const filtered = MOCK_DATA.filter((q) => {
- if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false
- if (levelFilter && q.level !== levelFilter) return false
- if (topicFilter && q.topic !== topicFilter) return false
- return true
- })
+  const fetchExams = () => {
+    setLoading(true)
+    // Fetch with meOnly=false, publishedOnly=true
+    examClient.listExams(false, true)
+      .then(data => {
+        const normalized = Array.isArray(data)
+          ? data
+              .filter((item): item is ExamResponse => !!item && typeof item === 'object')
+              .map((item) => ({
+                ...item,
+                title: typeof item.title === 'string' ? item.title : '',
+                created_at: typeof item.created_at === 'string' ? item.created_at : '',
+              }))
+          : []
+        setExams(normalized)
+      })
+      .catch(e => setError(e.message || 'Không thể tải danh sách đề thi'))
+      .finally(() => setLoading(false))
+  }
 
- const toggleAll = () => {
- if (selectedIds.length === filtered.length) {
- setSelectedIds([])
- } else {
- setSelectedIds(filtered.map((q) => q.id))
- }
- }
+  useEffect(() => {
+    fetchExams()
+  }, [])
 
- const toggleOne = (id: string) => {
- setSelectedIds((prev) =>
- prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
- )
- }
+  const filteredExams = exams.filter(exam => {
+    const safeTitle = typeof exam.title === 'string' ? exam.title : ''
+    const safeCreatedAt = typeof exam.created_at === 'string' ? exam.created_at : ''
 
- const resetFilters = () => {
- setSearch('')
- setLevelFilter('')
- setTopicFilter('')
- setDateFilter('')
- setCurrentPage(1)
- }
+    if (searchQuery && !safeTitle.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false
+    }
+    if (levelFilter !== 'all' && !safeTitle.includes(levelFilter)) {
+      return false
+    }
+    
+    if (dateFilter !== 'all') {
+      const examDate = new Date(safeCreatedAt)
+      if (Number.isNaN(examDate.getTime())) return false
+      const now = new Date()
+      if (dateFilter === 'today') {
+        if (examDate.toDateString() !== now.toDateString()) return false
+      } else if (dateFilter === 'week') {
+        const weekAgo = new Date()
+        weekAgo.setDate(now.getDate() - 7)
+        if (examDate < weekAgo) return false
+      } else if (dateFilter === 'month') {
+        const monthAgo = new Date()
+        monthAgo.setMonth(now.getMonth() - 1)
+        if (examDate < monthAgo) return false
+      }
+    }
+    
+    return true
+  })
 
- const renderPageNumbers = () => {
- const pages: (number | '...')[] = []
- if (totalPages <= 7) {
- for (let i = 1; i <= totalPages; i++) pages.push(i)
- } else {
- pages.push(1, 2, 3)
- if (currentPage > 4) pages.push('...')
- pages.push(totalPages)
- }
- return pages
- }
+  return (
+    <div className="p-8 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-card-foreground">Ngân hàng đề thi</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Khám phá tất cả các đề thi đã được xuất bản trên hệ thống
+          </p>
+        </div>
+      </div>
 
- return (
- <div className="p-8">
- {/* Header */}
- <div className="flex items-start justify-between mb-6">
- <div>
- <h1 className="text-2xl font-bold text-foreground">Ngân hàng câu hỏi</h1>
- <p className="text-sm text-muted-foreground mt-1">
- Hệ thống quản lý, chỉnh sửa và xuất đề thi luyện nghe tiếng Nhật.
- </p>
- </div>
- <div className="flex items-center gap-3">
- <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm text-muted-foreground bg-card hover:bg-accent hover:text-accent-foreground transition-colors">
- <Upload className="w-4 h-4" />
- Nhập dữ liệu
- </button>
- <button className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
- <Plus className="w-4 h-4" />
- Tạo câu hỏi mới
- </button>
- </div>
- </div>
+      {/* Filters & Search */}
+      {!loading && exams.length > 0 && (
+        <div className="flex flex-col md:flex-row gap-4 mb-8 bg-card p-4 rounded-xl border border-border shadow-sm">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm đề thi..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-muted-foreground"
+            />
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10 pointer-events-none" />
+              <select
+                value={levelFilter}
+                onChange={(e) => setLevelFilter(e.target.value)}
+                className="appearance-none pl-9 pr-8 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-muted-foreground min-w-[130px] cursor-pointer"
+              >
+                <option value="all">Mọi cấp độ</option>
+                <option value="N1">N1</option>
+                <option value="N2">N2</option>
+                <option value="N3">N3</option>
+                <option value="N4">N4</option>
+                <option value="N5">N5</option>
+              </select>
+            </div>
 
- {/* Main card */}
- <div className="bg-card rounded-xl border border-border overflow-hidden">
- {/* Filters */}
- <div className="flex items-center gap-3 p-4 border-b border-slate-100">
- {/* Search */}
- <div className="relative flex-1 max-w-xs">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
- <input
- type="text"
- placeholder="Tìm kiếm (vd: Hiểu bài tập, ...)"
- value={search}
- onChange={(e) => setSearch(e.target.value)}
- className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:bg-card placeholder:text-muted-foreground"
- />
- </div>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10 pointer-events-none" />
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="appearance-none pl-9 pr-8 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-muted-foreground min-w-[130px] cursor-pointer"
+              >
+                <option value="all">Mọi lúc</option>
+                <option value="today">Hôm nay</option>
+                <option value="week">Tuần này</option>
+                <option value="month">Tháng này</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
- {/* Level filter */}
- <div className="relative">
- <select
- value={levelFilter}
- onChange={(e) => setLevelFilter(e.target.value)}
- className="appearance-none pl-3 pr-8 py-2 text-sm border border-border rounded-lg bg-slate-50 text-muted-foreground focus:outline-none focus:ring-2 focus:ring-slate-300 cursor-pointer"
- >
- <option value="">Cấp độ</option>
- <option value="N1">N1</option>
- <option value="N2">N2</option>
- <option value="N3">N3</option>
- <option value="N4">N4</option>
- <option value="N5">N5</option>
- </select>
- <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
- </div>
+      {/* Error state */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
 
- {/* Topic filter */}
- <div className="relative">
- <select
- value={topicFilter}
- onChange={(e) => setTopicFilter(e.target.value)}
- className="appearance-none pl-3 pr-8 py-2 text-sm border border-border rounded-lg bg-slate-50 text-muted-foreground focus:outline-none focus:ring-2 focus:ring-slate-300 cursor-pointer"
- >
- <option value="">Chủ đề</option>
- <option value="Hiểu nhiệm vụ">Hiểu nhiệm vụ</option>
- <option value="Hiểu điểm chính">Hiểu điểm chính</option>
- <option value="Diễn đạt lời nói">Diễn đạt lời nói</option>
- <option value="Phản xạ nhanh">Phản xạ nhanh</option>
- </select>
- <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
- </div>
+      {/* Loading state */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : exams.length === 0 ? (
+        /* Empty state */
+        <div className="text-center py-24">
+          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+            <Layers className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <h2 className="text-base font-semibold text-slate-700 dark:text-muted-foreground mb-1">
+            Chưa có đề thi nào được xuất bản
+          </h2>
+          <p className="text-sm text-muted-foreground mb-6">
+            Hệ thống hiện chưa có đề thi nào sẵn sàng.
+          </p>
+        </div>
+      ) : filteredExams.length === 0 && exams.length > 0 ? (
+        <div className="text-center py-24">
+          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+            <Search className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <h2 className="text-base font-semibold text-slate-700 dark:text-muted-foreground mb-1">
+            Không tìm thấy đề thi
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Hãy thử thay đổi từ khóa hoặc bộ lọc của bạn.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen className="w-4 h-4 text-emerald-500" />
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-muted-foreground uppercase tracking-wide">
+                Đề thi khả dụng
+              </h2>
+              <span className="text-xs text-muted-foreground">({filteredExams.length})</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredExams.map(exam => (
+                <ExamCard key={exam.exam_id} exam={exam} onClick={() => setSelected(exam)} />
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
 
- {/* Date filter */}
- <input
- type="date"
- value={dateFilter}
- onChange={(e) => setDateFilter(e.target.value)}
- className="py-2 px-3 text-sm border border-border rounded-lg bg-slate-50 text-muted-foreground focus:outline-none focus:ring-2 focus:ring-slate-300"
- />
-
- <button
- onClick={resetFilters}
- className="flex items-center gap-1.5 px-3 py-2 text-sm text-muted-foreground hover:text-slate-700 transition-colors"
- >
- <RotateCcw className="w-3.5 h-3.5" />
- Đặt lại bộ lọc
- </button>
- </div>
-
- {/* Table */}
- <table className="w-full text-sm">
- <thead>
- <tr className="border-b border-slate-100 bg-slate-50/60">
- <th className="w-10 px-4 py-3">
- <input
- type="checkbox"
- checked={selectedIds.length === filtered.length && filtered.length > 0}
- onChange={toggleAll}
- className="rounded border-border"
- />
- </th>
- <th className="text-left px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Tiêu đề / ID
- </th>
- <th className="text-left px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Cấp độ
- </th>
- <th className="text-left px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Chủ đề
- </th>
- <th className="text-left px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Ngày tạo
- </th>
- <th className="text-left px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Trạng thái
- </th>
- <th className="text-right px-4 py-3 font-medium text-muted-foreground uppercase tracking-wide text-xs">
- Thao tác
- </th>
- </tr>
- </thead>
- <tbody className="divide-y divide-slate-100">
- {filtered.map((q) => (
- <tr key={q.id} className="hover:bg-accent hover:text-accent-foreground/70 transition-colors group">
- <td className="px-4 py-4">
- <input
- type="checkbox"
- checked={selectedIds.includes(q.id)}
- onChange={() => toggleOne(q.id)}
- className="rounded border-border"
- />
- </td>
- <td className="px-4 py-4">
- <div className="flex items-center gap-3">
- <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
- <Headphones className="w-4 h-4 text-muted-foreground" />
- </div>
- <div>
- <p className="font-medium text-foreground leading-tight">{q.title}</p>
- <p className="text-xs text-muted-foreground mt-0.5">ID: {q.id}</p>
- </div>
- </div>
- </td>
- <td className="px-4 py-4">
- <span
- className={`inline-flex items-center justify-center w-8 h-6 rounded text-white text-xs font-bold ${LEVEL_COLORS[q.level]}`}
- >
- {q.level}
- </span>
- </td>
- <td className="px-4 py-4 text-muted-foreground">{q.topic}</td>
- <td className="px-4 py-4 text-muted-foreground">{q.createdAt}</td>
- <td className="px-4 py-4">
- <span
- className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_CONFIG[q.status].className}`}
- >
- <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
- {STATUS_CONFIG[q.status].label}
- </span>
- </td>
- <td className="px-4 py-4 text-right">
- <button className="p-1.5 rounded-md text-muted-foreground hover:text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors opacity-0 group-hover:opacity-100">
- <MoreHorizontal className="w-4 h-4" />
- </button>
- </td>
- </tr>
- ))}
- </tbody>
- </table>
-
- {/* Pagination bar */}
- <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/60">
- <p className="text-xs text-muted-foreground">
- Hiển thị{' '}
- <span className="font-medium">1</span> đến{' '}
- <span className="font-medium">5</span> trong tổng số{' '}
- <span className="font-medium">{totalItems}</span>
- </p>
- <div className="flex items-center gap-1">
- <button
- onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
- disabled={currentPage === 1}
- className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
- >
- <ChevronLeft className="w-3.5 h-3.5" />
- </button>
- {renderPageNumbers().map((page, idx) =>
- page === '...' ? (
- <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground text-sm">
- ...
- </span>
- ) : (
- <button
- key={page}
- onClick={() => setCurrentPage(page as number)}
- className={`w-8 h-8 rounded-md text-sm font-medium transition-colors border ${
- currentPage === page
- ? 'bg-slate-800 text-white border-slate-800'
- : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'
- }`}
- >
- {page}
- </button>
- ),
- )}
- <button
- onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
- disabled={currentPage === totalPages}
- className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
- >
- <ChevronRight className="w-3.5 h-3.5" />
- </button>
- </div>
- </div>
- </div>
-
- {/* Stats bar */}
- <div className="grid grid-cols-3 gap-4 mt-4">
- <StatCard
- icon={<StatsIcon emoji="☰" bg="bg-blue-50" color="text-blue-600" />}
- label="Tổng số câu hỏi"
- value="1,240"
- />
- <StatCard
- icon={<StatsIcon emoji="✓" bg="bg-emerald-50" color="text-emerald-600" />}
- label="Tạo trong tháng này"
- value="84"
- />
- <StatCard
- icon={<StatsIcon emoji="↗" bg="bg-orange-50" color="text-orange-500" />}
- label="Tỷ lệ chính xác TB"
- value="68%"
- />
- </div>
- </div>
- )
+      {/* Detail Modal */}
+      {selected && (
+        <ExamDetailModal 
+          exam={selected} 
+          onClose={() => setSelected(null)} 
+          onExamDeleted={() => {
+            setSelected(null)
+            fetchExams()
+          }}
+          onExamUpdated={(updatedExam) => {
+            setSelected(updatedExam)
+            fetchExams()
+          }}
+        />
+      )}
+    </div>
+  )
 }
 
-function StatCard({
- icon,
- label,
- value,
-}: {
- icon: React.ReactNode
- label: string
- value: string
-}) {
- return (
- <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
- {icon}
- <div>
- <p className="text-xs text-muted-foreground">{label}</p>
- <p className="text-xl font-bold text-foreground mt-0.5">{value}</p>
- </div>
- </div>
- )
-}
-
-function StatsIcon({
- emoji,
- bg,
- color,
-}: {
- emoji: string
- bg: string
- color: string
-}) {
- return (
- <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
- <span className={`text-base font-bold ${color}`}>{emoji}</span>
- </div>
- )
-}
