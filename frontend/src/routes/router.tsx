@@ -26,6 +26,7 @@ const TestResultReviewPage = lazy(() => import('../features/test/TestResultRevie
 const ExamHistoryPage = lazy(() =>
   import('../features/exam/ExamHistoryPage').then((m) => ({ default: m.ExamHistoryPage }))
 )
+const QuestionBankPage = lazy(() => import('../features/questionbank/QuestionBankPage'))
 
 // Error boundary component
 function ErrorBoundary() {
@@ -123,6 +124,10 @@ const routes = {
     {
       path: 'history',
       element: <ExamHistoryPage />,
+    },
+    {
+      path: 'question-bank',
+      element: <QuestionBankPage />,
     },
   ],
 }

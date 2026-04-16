@@ -354,9 +354,10 @@ async def create_exam_from_random(
             await db.execute(delete(Question).where(Question.exam_id == existing_exam.exam_id))
             existing_exam.title = payload.title
             existing_exam.description = payload.description
+            existing_exam.time_limit = payload.time_limit
             existing_exam.audio_id = exam_audio_id
-            existing_exam.current_step = 1
-            existing_exam.is_published = False
+            existing_exam.current_step = 4 if payload.is_published else 1
+            existing_exam.is_published = payload.is_published
             new_exam = existing_exam
             await db.flush()
         else:
@@ -366,8 +367,9 @@ async def create_exam_from_random(
                 audio_id=exam_audio_id,
                 title=payload.title,
                 description=payload.description,
-                current_step=1,
-                is_published=False,
+                time_limit=payload.time_limit,
+                current_step=4 if payload.is_published else 1,
+                is_published=payload.is_published,
             )
             db.add(new_exam)
             await db.flush()

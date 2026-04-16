@@ -24,6 +24,7 @@ interface RandomExamConfig {
   title: string
   description?: string
   level: Level
+  timeLimit: number
   mondaiConfig: MondaiConfig[]
 }
 
@@ -51,6 +52,7 @@ interface RandomExamResult {
   exam_id: string
   title: string
   level: Level
+  time_limit: number
   total_questions: number
   questions: GeneratedQuestion[]
   mondai_summary: Record<string, number>
@@ -58,13 +60,41 @@ interface RandomExamResult {
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-const DEFAULT_MONDAI: MondaiConfig[] = [
-  { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 2 },
-  { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 3 },
-  { id: 3, label: 'Mondai 3: Summary Comprehension', nameJa: 'Gaiyourikai (概要理解)', enabled: true, count: 2 },
-  { id: 4, label: 'Mondai 4: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 4 },
-  { id: 5, label: 'Mondai 5: Integrated Comprehension', nameJa: 'Sougourikai (統合理解)', enabled: true, count: 2 },
-]
+const MONDAI_CONFIG_BY_LEVEL: Record<Level, MondaiConfig[]> = {
+  N5: [
+    { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 7 },
+    { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 6 },
+    { id: 3, label: 'Mondai 3: Verbal Expressions', nameJa: 'Hatsuwa Hyougen (発話表現)', enabled: true, count: 5 },
+    { id: 4, label: 'Mondai 4: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 6 },
+  ],
+  N4: [
+    { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 8 },
+    { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 7 },
+    { id: 3, label: 'Mondai 3: Verbal Expressions', nameJa: 'Hatsuwa Hyougen (発話表現)', enabled: true, count: 5 },
+    { id: 4, label: 'Mondai 4: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 8 },
+  ],
+  N3: [
+    { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 6 },
+    { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 6 },
+    { id: 3, label: 'Mondai 3: Summary Comprehension', nameJa: 'Gaiyourikai (概要理解)', enabled: true, count: 3 },
+    { id: 4, label: 'Mondai 4: Verbal Expressions', nameJa: 'Hatsuwa Hyougen (発話表現)', enabled: true, count: 4 },
+    { id: 5, label: 'Mondai 5: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 9 },
+  ],
+  N2: [
+    { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 5 },
+    { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 6 },
+    { id: 3, label: 'Mondai 3: Summary Comprehension', nameJa: 'Gaiyourikai (概要理解)', enabled: true, count: 5 },
+    { id: 4, label: 'Mondai 4: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 12 },
+    { id: 5, label: 'Mondai 5: Integrated Comprehension', nameJa: 'Sougourikai (統合理解)', enabled: true, count: 3 },
+  ],
+  N1: [
+    { id: 1, label: 'Mondai 1: Task-based Comprehension', nameJa: 'Kadairikai (課題理解)', enabled: true, count: 6 },
+    { id: 2, label: 'Mondai 2: Point Comprehension', nameJa: 'Pointorikai (ポイント理解)', enabled: true, count: 7 },
+    { id: 3, label: 'Mondai 3: Summary Comprehension', nameJa: 'Gaiyourikai (概要理解)', enabled: true, count: 6 },
+    { id: 4, label: 'Mondai 4: Quick Response', nameJa: 'Sokujioutou (即時応答)', enabled: true, count: 14 },
+    { id: 5, label: 'Mondai 5: Integrated Comprehension', nameJa: 'Sougourikai (統合理解)', enabled: true, count: 4 },
+  ],
+}
 
 const LEVELS: Level[] = ['N5', 'N4', 'N3', 'N2', 'N1']
 
@@ -73,6 +103,43 @@ const LEVELS: Level[] = ['N5', 'N4', 'N3', 'N2', 'N1']
 function extractMondaiNumber(label: string) {
   const match = label.match(/(\d+)/)
   return match ? Number(match[1]) : 999
+}
+
+function generateClientUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16)
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+function isUUID(value: string | undefined | null): boolean {
+  if (!value) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function normalizeEditedQuestions(questions: GeneratedQuestion[]) {
+  return questions.map((q) => ({
+    question_id: isUUID(q.question_id) ? q.question_id : generateClientUUID(),
+    mondai_group: q.mondai_group,
+    question_number: q.question_number,
+    audio_clip_url: q.audio_clip_url,
+    question_text: q.question_text,
+    image_url: q.image_url,
+    script_text: q.script_text,
+    explanation: q.explanation,
+    difficulty: q.difficulty,
+    hide_question_text: q.hide_question_text,
+    answers: q.answers.map((a) => ({
+      content: a.content,
+      image_url: a.image_url,
+      is_correct: a.is_correct,
+      order_index: a.order_index,
+    })),
+  }))
 }
 
 // ─── Step Indicator Component ─────────────────────────────────────────────
@@ -131,7 +198,11 @@ function Step1_Configuration({ config, onConfigChange, onNext }: Step1Props) {
   }
 
   const handleLevelChange = (level: Level) => {
-    onConfigChange({ ...config, level })
+    onConfigChange({ ...config, level, mondaiConfig: MONDAI_CONFIG_BY_LEVEL[level] })
+  }
+
+  const handleTimeLimitChange = (minutes: number) => {
+    onConfigChange({ ...config, timeLimit: Math.max(1, Math.min(300, minutes || 1)) })
   }
 
   const handleMondaiToggle = (id: number) => {
@@ -183,25 +254,57 @@ function Step1_Configuration({ config, onConfigChange, onNext }: Step1Props) {
         </div>
       </div>
 
-      {/* Level Selection */}
-      <div>
-        <label className="block text-sm font-bold text-gray-800 mb-3">
-          Trình độ <span className="text-red-500">*</span>
-        </label>
-        <div className="grid grid-cols-5 gap-2">
-          {LEVELS.map(lvl => (
+      {/* Level + Time Limit */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-bold text-gray-800 mb-3">
+            Trình độ <span className="text-red-500">*</span>
+          </label>
+          <div className="grid grid-cols-5 gap-2">
+            {LEVELS.map(lvl => (
+              <button
+                key={lvl}
+                onClick={() => handleLevelChange(lvl)}
+                className={`py-2.5 rounded-lg font-bold transition-colors ${
+                  config.level === lvl
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {lvl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-bold text-gray-800 mb-3">
+            Thời gian làm bài (Phút)
+          </label>
+          <div className="flex items-center gap-3">
             <button
-              key={lvl}
-              onClick={() => handleLevelChange(lvl)}
-              className={`py-2.5 rounded-lg font-bold transition-colors ${
-                config.level === lvl
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+              type="button"
+              aria-label="Giảm thời gian"
+              onClick={() => handleTimeLimitChange(config.timeLimit - 5)}
+              className="w-10 h-10 rounded-lg border border-gray-300 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xl leading-none font-medium flex items-center justify-center"
             >
-              {lvl}
+              −
             </button>
-          ))}
+            <div className="min-w-14 text-center text-3xl font-bold text-gray-800 leading-none">
+              {config.timeLimit}
+            </div>
+            <button
+              type="button"
+              aria-label="Tăng thời gian"
+              onClick={() => handleTimeLimitChange(config.timeLimit + 5)}
+              className="w-10 h-10 rounded-lg border border-gray-300 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xl leading-none font-medium flex items-center justify-center"
+            >
+              +
+            </button>
+          </div>
+          <p className="mt-1.5 text-sm text-gray-600">
+            Tổng thời gian cho toàn bộ các phần thi bên dưới.
+          </p>
         </div>
       </div>
 
@@ -337,6 +440,7 @@ function Step2_Progress({ config, onComplete, onBack }: Step2Props) {
               exam_id: statusResponse.exam_id,
               title: statusResponse.title,
               level: statusResponse.level,
+              time_limit: config.timeLimit,
               total_questions: statusResponse.total_questions,
               questions: (statusResponse.questions || []) as GeneratedQuestion[],
               mondai_summary: statusResponse.mondai_summary || {},
@@ -422,6 +526,10 @@ function Step2_Progress({ config, onComplete, onBack }: Step2Props) {
             <span className="text-sm text-gray-600">Trình độ:</span>
             <p className="font-semibold text-gray-900">{config.level}</p>
           </div>
+          <div>
+            <span className="text-sm text-gray-600">Thời gian:</span>
+            <p className="font-semibold text-gray-900">{config.timeLimit} phút</p>
+          </div>
           {config.mondaiConfig
             .filter(m => m.enabled)
             .map(m => (
@@ -470,6 +578,11 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
   const [questions, setQuestions] = useState<GeneratedQuestion[]>(result.questions || [])
   const [activeQIdx, setActiveQIdx] = useState<number>(0)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isSavingDraft, setIsSavingDraft] = useState(false)
+
+  useEffect(() => {
+    onEdit(questions)
+  }, [questions, onEdit])
 
   const updateQuestion = (idx: number, patch: Partial<GeneratedQuestion>) => {
     setHasUnsavedChanges(true)
@@ -500,7 +613,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
     const next = [...base]
     while (next.length < count) {
       next.push({
-        answer_id: `temp-${qIdx}-${next.length}`,
+        answer_id: generateClientUUID(),
         content: '',
         is_correct: false,
         order_index: next.length,
@@ -542,7 +655,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
 
     const last = inGroup[inGroup.length - 1]
     const newQuestion: GeneratedQuestion = {
-      question_id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      question_id: generateClientUUID(),
       mondai_group: group,
       question_number: nextNum,
       audio_clip_url: last?.audio_clip_url,
@@ -551,7 +664,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
       explanation: '',
       difficulty: last?.difficulty ?? 3,
       answers: Array.from({ length: 4 }).map((_, i) => ({
-        answer_id: `temp-a-${Date.now()}-${i}`,
+        answer_id: generateClientUUID(),
         content: '',
         is_correct: false,
         order_index: i,
@@ -572,19 +685,60 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
     handleAddQuestion(`Mondai ${nextMondai}`)
   }
 
-  const handleSaveEdits = () => {
+  const handleSaveEdits = async () => {
+    try {
+      setIsSavingDraft(true)
+      const normalizedEditedQuestions = normalizeEditedQuestions(questions)
+      await randomExamClient.createExamFromRandom({
+        exam_id: result.exam_id,
+        title: result.title,
+        description: `Sinh từ ${questions.length} câu ngẫu nhiên - ${result.level}`,
+        question_ids: normalizedEditedQuestions.map((q) => q.question_id).filter((id) => isUUID(id)),
+        edited_questions: normalizedEditedQuestions,
+        time_limit: result.time_limit,
+        is_published: false,
+      })
+      onEdit(questions)
+      setHasUnsavedChanges(false)
+      toast({ title: 'Đã lưu bản nháp' })
+    } catch (err: any) {
+      toast({
+        title: 'Lưu bản nháp thất bại',
+        description: err?.message || 'Không thể lưu bản nháp',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingDraft(false)
+    }
+  }
+
+  const handleSaveChanges = () => {
     onEdit(questions)
     setHasUnsavedChanges(false)
-    toast({ title: 'Đã lưu chỉnh sửa' })
+    toast({ title: 'Đã lưu thay đổi' })
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Hiệu đính chi tiết</h2>
-        <span className="text-sm font-semibold text-blue-600">
-          {questions.length} / {result.total_questions} câu
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-blue-600">
+            {questions.length} / {result.total_questions} câu
+          </span>
+          <button
+            onClick={() => void handleSaveEdits()}
+            disabled={isSavingDraft}
+            className={`px-3.5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${
+              isSavingDraft
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+            }`}
+          >
+            {isSavingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Lưu bản nháp
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-4 lg:gap-5">
@@ -818,7 +972,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
       <div className="flex items-center justify-end pt-3 border-t border-border">
         <div className="flex items-center gap-3">
           <button
-            onClick={handleSaveEdits}
+            onClick={handleSaveChanges}
             disabled={!hasUnsavedChanges}
             className={`px-6 py-2.5 rounded-lg font-semibold flex items-center gap-2 transition-colors ${
               hasUnsavedChanges
@@ -826,7 +980,7 @@ function Step3_ReviewEdit({ result, onEdit, onNext, onBack }: Step3Props) {
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
           >
-            <Check className="h-5 w-5" /> Lưu chỉnh sửa
+            <Check className="h-5 w-5" /> Lưu thay đổi
           </button>
           <button
             onClick={onBack}
@@ -882,29 +1036,18 @@ function Step4_FinalReview({ result, onBack }: Step4Props) {
       }
 
       setMergeProgress('Đang tạo đề thi...')
+      const normalizedEditedQuestions = normalizeEditedQuestions(result.questions)
+
       const examResult = await randomExamClient.createExamFromRandom({
         exam_id: result.exam_id,
         title: result.title,
         description: `Sinh từ ${result.total_questions} câu ngẫu nhiên - ${result.level}`,
-        question_ids: result.questions.map(q => q.question_id),
-        edited_questions: result.questions.map((q) => ({
-          question_id: q.question_id,
-          mondai_group: q.mondai_group,
-          question_number: q.question_number,
-          audio_clip_url: q.audio_clip_url,
-          question_text: q.question_text,
-          image_url: q.image_url,
-          script_text: q.script_text,
-          explanation: q.explanation,
-          difficulty: q.difficulty,
-          hide_question_text: q.hide_question_text,
-          answers: q.answers.map((a) => ({
-            content: a.content,
-            image_url: a.image_url,
-            is_correct: a.is_correct,
-            order_index: a.order_index,
-          })),
-        })),
+        question_ids: normalizedEditedQuestions
+          .map((q) => q.question_id)
+          .filter((id) => isUUID(id)),
+        edited_questions: normalizedEditedQuestions,
+        time_limit: result.time_limit,
+        is_published: true,
         audio_file_url: mergedAudioUrl,
       })
 
@@ -954,6 +1097,10 @@ function Step4_FinalReview({ result, onBack }: Step4Props) {
         <div>
           <span className="text-sm font-bold text-gray-600">Tổng câu hỏi</span>
           <p className="text-lg font-semibold text-gray-900">{result.total_questions} câu</p>
+        </div>
+        <div>
+          <span className="text-sm font-bold text-gray-600">Thời gian</span>
+          <p className="text-lg font-semibold text-gray-900">{result.time_limit} phút</p>
         </div>
         <div>
           <span className="text-sm font-bold text-gray-600">Có file audio</span>
@@ -1011,7 +1158,8 @@ export default function RandomExamPage() {
     title: '',
     description: '',
     level: 'N2',
-    mondaiConfig: DEFAULT_MONDAI,
+    timeLimit: 60,
+    mondaiConfig: MONDAI_CONFIG_BY_LEVEL['N2'],
   })
   const [result, setResult] = useState<RandomExamResult | null>(null)
 
@@ -1022,19 +1170,48 @@ export default function RandomExamPage() {
   const handleStep1Next = () => setStep(2)
 
   const handleStep2Complete = (generatedResult: RandomExamResult) => {
-    setResult(generatedResult)
+    setResult({ ...generatedResult, time_limit: config.timeLimit })
     setStep(3)
   }
 
   const handleStep3Next = () => setStep(4)
   const handleStep4Back = () => setStep(3)
 
+  const handleExitToExamList = async () => {
+    try {
+      if (result && step >= 3) {
+        const normalizedEditedQuestions = normalizeEditedQuestions(result.questions)
+        await randomExamClient.createExamFromRandom({
+          exam_id: result.exam_id,
+          title: result.title,
+          description: `Sinh từ ${result.questions.length} câu ngẫu nhiên - ${result.level}`,
+          question_ids: normalizedEditedQuestions
+            .map((q) => q.question_id)
+            .filter((id) => isUUID(id)),
+          edited_questions: normalizedEditedQuestions,
+          time_limit: result.time_limit,
+          is_published: false,
+        })
+        toast({ title: 'Đã lưu bản nháp' })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Không thể lưu bản nháp',
+        description: err?.message || 'Vui lòng thử lại trước khi thoát',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    navigate('/exams')
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-4 px-3 lg:px-6">
       <div className="mx-auto max-w-[1400px]">
         <div className="mb-5">
           <button
-            onClick={() => navigate('/exams')}
+            onClick={() => void handleExitToExamList()}
             className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2 mb-4"
           >
             ← Quay lại

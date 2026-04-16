@@ -142,10 +142,15 @@ export const examClient = {
 
   deleteExam: (examId: string) => apiFetch(`${API_BASE}/api/exams/${examId}`, { method: 'DELETE' }),
 
-  listExams: () =>
-    apiFetch(`${API_BASE}/api/exams`)
+  listExams: (meOnly: boolean = false, publishedOnly: boolean = false) => {
+    const params = new URLSearchParams()
+    if (meOnly) params.append('me_only', 'true')
+    if (publishedOnly) params.append('published_only', 'true')
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return apiFetch(`${API_BASE}/api/exams${qs}`)
       .then((r) => handleResponse<ExamListResponse>(r))
-      .then((data) => data.exams),
+      .then((data) => data.exams)
+  },
 
   createQuestion: (data: QuestionPayload) =>
     apiFetch(`${API_BASE}/api/questions`, {
@@ -397,6 +402,8 @@ export const randomExamClient = {
     description?: string
     question_ids: string[]
     edited_questions?: RandomEditedQuestionPayload[]
+    time_limit?: number
+    is_published?: boolean
     audio_file_url?: string
   }): Promise<ExamResponse> =>
     apiFetch(`${API_BASE}/api/exams/random/create`, {
