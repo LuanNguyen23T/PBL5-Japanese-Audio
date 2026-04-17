@@ -56,13 +56,13 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Dynamic blurred background layer */}
-      <div 
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" 
-        onClick={onClose} 
+      <div
+        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+        onClick={onClose}
       />
 
       <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[32px] border border-border bg-card shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-        
+
         {/* Header Section with Gradient Background */}
         <div className="relative shrink-0 bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700 px-6 py-8 text-white sm:px-10">
           <div className="absolute right-0 top-0 opacity-20 pointer-events-none">
@@ -71,7 +71,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
               <circle cx="350" cy="150" r="100" fill="currentColor" />
             </svg>
           </div>
-          
+
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-full bg-black/20 p-2 text-white/90 backdrop-blur-sm transition-colors hover:bg-black/40 hover:text-white"
@@ -120,7 +120,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
 
           {data && !loading && (
             <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-              
+
               {/* Overview panel */}
               {data.overview && (
                 <div className="relative overflow-hidden rounded-[24px] border border-indigo-100 dark:border-indigo-900/30 bg-card p-6 shadow-sm">
@@ -140,7 +140,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
               )}
 
               {/* Spider Chart / Radar Chart */}
-              {data && (
+              {data.skill_metrics && Object.keys(data.skill_metrics).length > 0 && (
                 <div className="rounded-[24px] border border-border bg-card p-6 shadow-sm">
                   <div className="mb-2 text-center">
                     <h4 className="text-xl font-black text-foreground">Bản đồ Năng lực Đồng bộ</h4>
@@ -148,25 +148,60 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
                   </div>
                   <div className="mx-auto h-[350px] w-full max-w-lg">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart 
-                        cx="50%" 
-                        cy="50%" 
-                        outerRadius="75%" 
-                        data={(() => {
-                          const defaultSkills = ["Hiểu vấn đề", "Hiểu điểm chính", "Hiểu khái quát", "Phản xạ nhanh", "Hiểu tổng hợp"];
-                          const metrics = data.skill_metrics || {};
-                          const allSkills = Array.from(new Set([...defaultSkills, ...Object.keys(metrics)]));
-                          return allSkills.map(subject => ({
+                      <RadarChart
+                        cx="50%"
+                        cy="50%"
+                        outerRadius="75%"
+                        data={Object.entries(data.skill_metrics)
+                          .sort(([, a], [, b]) => (a.mondai_id || 99) - (b.mondai_id || 99))
+                          .map(([subject, stats]) => ({
                             subject,
-                            A: metrics[subject] || 0,
+                            A: stats.percentage, // Use percentage for plotting (reverted)
+                            percentage: stats.percentage,
+                            correct: stats.correct,
+                            total: stats.total,
                             fullMark: 100,
-                          }));
-                        })()}
+                          }))}
                       >
-                        <PolarGrid stroke="var(--border)" strokeDasharray="3 3" />
-                        <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--muted-foreground)', fontSize: 13, fontWeight: 600 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} />
-                        <RechartsTooltip formatter={(value: any) => [`${value}%`, 'Tỷ lệ đúng']} />
+                        <PolarGrid
+                          stroke="var(--border)"
+                          strokeOpacity={0.5}
+                        />
+                        <PolarAngleAxis
+                          dataKey="subject"
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12, fontWeight: 600 }}
+                        />
+                        <PolarRadiusAxis
+                          domain={[0, 100]}
+                          tick={false}
+                          axisLine={false}
+                          tickCount={6}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const itemData = payload[0].payload;
+                              return (
+                                <div className="rounded-xl border border-border bg-card p-3 shadow-xl backdrop-blur-md">
+                                  <p className="text-sm font-black text-foreground">{itemData.subject}</p>
+                                  <div className="mt-1.5 flex items-center gap-2">
+                                    <div className="h-2 w-full max-w-[60px] overflow-hidden rounded-full bg-muted">
+                                      <div
+                                        className="h-full bg-indigo-500"
+                                        style={{ width: `${itemData.percentage}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-bold text-indigo-500">{itemData.percentage}%</span>
+                                  </div>
+                                  <p className="mt-1 text-[10px] text-muted-foreground font-medium italic">
+                                    Làm đúng: <span className="text-foreground">{itemData.correct}/{itemData.total}</span> câu
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
                         <Radar
                           name="Kỹ năng"
                           dataKey="A"
@@ -240,7 +275,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
             </div>
           )}
         </div>
-        
+
         {/* Footer */}
         <div className="shrink-0 border-t border-border bg-card px-6 py-5 sm:px-10">
           <div className="flex justify-end">
