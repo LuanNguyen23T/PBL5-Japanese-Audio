@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Swords, Timer } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Swords,
+  Timer,
+  Loader2,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Input } from '@/components/ui/input'
@@ -31,10 +39,14 @@ function formatDateTime(value: string) {
 }
 
 export default function CreateArenaPage() {
+  const { contestId } = useParams<{ contestId: string }>()
   const navigate = useNavigate()
+  const isEditMode = !!contestId
+
   const [step, setStep] = useState<Step>(1)
   const [myExams, setMyExams] = useState<ExamResponse[]>([])
   const [selectedExamId, setSelectedExamId] = useState('')
+  const [loadingInitial, setLoadingInitial] = useState(true)
   const [loadingExams, setLoadingExams] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -44,23 +56,41 @@ export default function CreateArenaPage() {
   const [maxDuration, setMaxDuration] = useState(45)
   const [minLevel, setMinLevel] = useState<JLPTLevel>('N3')
   const [startAt, setStartAt] = useState(toLocalDatetimeValue(new Date(Date.now() + 60 * 60 * 1000)))
-  const [endAt, setEndAt] = useState(
-    toLocalDatetimeValue(new Date(Date.now() + 2 * 60 * 60 * 1000))
-  )
+  const [endAt, setEndAt] = useState(toLocalDatetimeValue(new Date(Date.now() + 2 * 60 * 60 * 1000)))
   const [maxParticipants, setMaxParticipants] = useState('50')
 
   useEffect(() => {
-    examClient
-      .listExams(true)
-      .then((data) => {
-        setMyExams(data)
-        if (data[0]) {
-          setSelectedExamId(data[0].exam_id)
+    const loadData = async () => {
+      setLoadingInitial(true)
+      try {
+        // Load exams
+        const exams = await examClient.listExams(true)
+        setMyExams(exams)
+
+        if (isEditMode && contestId) {
+          // Load contest data
+          const contest = await arenaClient.getContest(contestId)
+          setTitle(contest.title)
+          setDescription(contest.description || '')
+          setMinLevel(contest.min_jlpt_level)
+          setMaxDuration(contest.time_limit)
+          setStartAt(toLocalDatetimeValue(new Date(contest.start_time)))
+          setEndAt(toLocalDatetimeValue(new Date(contest.end_time)))
+          setMaxParticipants(contest.max_participants?.toString() || '')
+          setSelectedExamId(contest.exam_id)
+        } else if (exams[0]) {
+          setSelectedExamId(exams[0].exam_id)
         }
-      })
-      .catch((err: Error) => setError(err.message || 'Không thể tải đề thi của bạn'))
-      .finally(() => setLoadingExams(false))
-  }, [])
+      } catch (err: any) {
+        setError(err.message || 'Không thể tải dữ liệu')
+      } finally {
+        setLoadingInitial(false)
+        setLoadingExams(false)
+      }
+    }
+
+    loadData()
+  }, [contestId, isEditMode])
 
   const selectedExam = useMemo(
     () => myExams.find((exam) => exam.exam_id === selectedExamId) ?? null,
@@ -86,30 +116,45 @@ export default function CreateArenaPage() {
 
   const stepTwoValid = !!selectedExam
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     if (!selectedExam || !stepOneValid) return
 
     setSaving(true)
     setError('')
 
-    try {
-      const contest = await arenaClient.createContest({
-        title: title.trim(),
-        description: description.trim(),
-        min_jlpt_level: minLevel,
-        time_limit: maxDuration,
-        start_time: toApiLocalDateTime(startAt),
-        end_time: toApiLocalDateTime(endAt),
-        max_participants: maxParticipants ? Number(maxParticipants) : undefined,
-        exam_id: selectedExam.exam_id,
-      })
+    const payload = {
+      title: title.trim(),
+      description: description.trim(),
+      min_jlpt_level: minLevel,
+      time_limit: maxDuration,
+      start_time: toApiLocalDateTime(startAt),
+      end_time: toApiLocalDateTime(endAt),
+      max_participants: maxParticipants ? Number(maxParticipants) : undefined,
+      exam_id: selectedExam.exam_id,
+    }
 
-      navigate(`/arena/${contest.contest_id}`)
+    try {
+      if (isEditMode && contestId) {
+        await arenaClient.updateContest(contestId, payload)
+        navigate(`/arena/${contestId}`)
+      } else {
+        const contest = await arenaClient.createContest(payload)
+        navigate(`/arena/${contest.contest_id}`)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể tạo cuộc thi')
+      setError(err instanceof Error ? err.message : 'Không thể lưu cuộc thi')
     } finally {
       setSaving(false)
     }
+  }
+
+  if (loadingInitial) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-600" />
+        <p className="text-sm text-muted-foreground">Đang tải cấu hình cuộc thi...</p>
+      </div>
+    )
   }
 
   return (
@@ -118,10 +163,13 @@ export default function CreateArenaPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-700">
           JLPT Ranking Arena
         </p>
-        <h1 className="mt-3 text-3xl font-bold text-foreground">Tạo cuộc thi mới</h1>
+        <h1 className="mt-3 text-3xl font-bold text-foreground">
+          {isEditMode ? 'Chỉnh sửa cuộc thi' : 'Tạo cuộc thi mới'}
+        </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">
-          Luồng tạo contest gồm 3 bước: cấu hình cuộc thi, chọn một đề trong kho đề của tôi và
-          kiểm tra lại toàn bộ trước khi mở phòng thi.
+          {isEditMode
+            ? 'Cập nhật lại thông tin, thời gian hoặc thay đổi đề thi cho Arena này.'
+            : 'Luồng tạo contest gồm 3 bước: cấu hình cuộc thi, chọn một đề trong kho đề của tôi và kiểm tra lại toàn bộ trước khi mở phòng thi.'}
         </p>
       </div>
 
@@ -170,14 +218,17 @@ export default function CreateArenaPage() {
           <CardHeader>
             <CardTitle>Thiết lập cuộc thi</CardTitle>
             <CardDescription>
-              Người tạo đặt thông tin cuộc thi, khung thời gian, giới hạn người tham gia và trình độ
-              JLPT tối thiểu.
+              Thông tin cơ bản, khung thời gian làm bài của cuộc thi.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-5 md:grid-cols-2">
+          <CardContent className="grid gap-6 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium">Tên cuộc thi</label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ví dụ: Arena luyện nghe N2 tối thứ 6" />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Ví dụ: Arena luyện nghe N2 tối thứ 6"
+              />
             </div>
 
             <div className="md:col-span-2">
@@ -217,12 +268,20 @@ export default function CreateArenaPage() {
 
             <div>
               <label className="mb-2 block text-sm font-medium">Thời gian bắt đầu</label>
-              <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+              <Input
+                type="datetime-local"
+                value={startAt}
+                onChange={(e) => setStartAt(e.target.value)}
+              />
             </div>
 
             <div>
               <label className="mb-2 block text-sm font-medium">Thời gian kết thúc</label>
-              <Input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} />
+              <Input
+                type="datetime-local"
+                value={endAt}
+                onChange={(e) => setEndAt(e.target.value)}
+              />
             </div>
 
             <div>
@@ -234,13 +293,6 @@ export default function CreateArenaPage() {
                 onChange={(e) => setMaxParticipants(e.target.value)}
                 placeholder="Để trống nếu không giới hạn"
               />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium">Chế độ thi</label>
-              <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
-                Phòng thi
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -318,7 +370,7 @@ export default function CreateArenaPage() {
             <CardHeader>
               <CardTitle>Xem lại cấu hình</CardTitle>
               <CardDescription>
-                Kiểm tra thông tin cuộc thi, đề thi được chọn và trạng thái dự kiến trước khi tạo.
+                Kiểm tra thông tin cuộc thi, đề thi được chọn và trạng thái dự kiến trước khi lưu.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -326,10 +378,6 @@ export default function CreateArenaPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Tên cuộc thi</p>
                   <p className="mt-1 font-semibold text-foreground">{title}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Chế độ thi</p>
-                  <p className="mt-1 font-semibold text-foreground">Phòng thi</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Thời gian làm bài tối đa</p>
@@ -425,11 +473,17 @@ export default function CreateArenaPage() {
             </Button>
           ) : (
             <Button
-              onClick={handleCreate}
+              onClick={handleSave}
               disabled={!stepOneValid || !stepTwoValid || saving}
               className="bg-orange-600 hover:bg-orange-700"
             >
-              {saving ? 'Đang tạo...' : 'Tạo cuộc thi'}
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isEditMode ? (
+                'Cập nhật cuộc thi'
+              ) : (
+                'Tạo cuộc thi'
+              )}
             </Button>
           )}
         </div>

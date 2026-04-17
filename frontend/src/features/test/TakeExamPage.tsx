@@ -282,6 +282,11 @@ export function TakeExamContent({
  const handleSubmit = async (autoSubmit = false) => {
  if (!exam || submitting || result) return
 
+ // Stop all playing audio when submitting
+ document.querySelectorAll('audio').forEach((el) => {
+   el.pause()
+ })
+
  if (!autoSubmit) {
  const confirmed = window.confirm('Bạn có chắc muốn nộp bài thi ngay bây giờ?')
  if (!confirmed) return

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
 import {
   CalendarRange,
   ChevronDown,
@@ -28,34 +29,53 @@ function formatDateTime(value: string) {
   })
 }
 
-function ArenaCard({ contest }: { contest: ArenaContest }) {
+function ArenaCard({
+  contest,
+  onUpdate,
+}: {
+  contest: ArenaContest
+  onUpdate: () => void
+}) {
+  const { user } = useAuth()
+  const navigate = useNavigate()
   const status = getArenaStatus(contest)
+  const isOwner = user?.id === contest.creator_id || user?.role === 'admin'
+
 
   return (
-    <Card className="overflow-hidden border-border/80 bg-card/90 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg">
+    <Card className="group overflow-hidden border-border/80 bg-card/90 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg">
       <CardContent className="p-0">
-        <div className="border-b border-border/60 bg-gradient-to-r from-orange-100 via-amber-50 to-white p-5 dark:from-orange-950/40 dark:via-amber-950/20 dark:to-card">
+        <div className="relative border-b border-border/60 bg-gradient-to-r from-orange-100 via-amber-50 to-white p-5 dark:from-orange-950/40 dark:via-amber-950/20 dark:to-card">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
                 JLPT Ranking Arena
               </p>
-              <h3 className="text-lg font-semibold leading-tight text-foreground">
+              <h3 className="line-clamp-1 text-lg font-semibold leading-tight text-foreground">
                 {contest.title}
               </h3>
             </div>
+          </div>
+          <p className="line-clamp-2 text-sm text-muted-foreground">{contest.description}</p>
+
+          <div className="absolute right-3 top-3">
             <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${arenaClient.getStatusClasses(
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm backdrop-blur-md ${arenaClient.getStatusClasses(
                 status
               )}`}
             >
               {arenaClient.getStatusLabel(status)}
             </span>
           </div>
-          <p className="line-clamp-2 text-sm text-muted-foreground">{contest.description}</p>
+
+          {isOwner && (
+            <div className="absolute left-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+            </div>
+          )}
         </div>
 
         <div className="space-y-4 p-5">
+
           <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
             <div className="flex items-center gap-2">
               <CalendarRange className="h-4 w-4 text-orange-500" />
@@ -101,13 +121,18 @@ export default function ArenaPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
+  const fetchContests = useCallback(() => {
+    setLoading(true)
     arenaClient
       .listContests()
       .then(setContests)
       .catch((err: Error) => setError(err.message || 'Không thể tải danh sách cuộc thi'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchContests()
+  }, [fetchContests])
 
   const filteredContests = useMemo(() => {
     return contests.filter((contest) => {
@@ -254,7 +279,11 @@ export default function ArenaPage() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filteredContests.map((contest) => (
-            <ArenaCard key={contest.contest_id} contest={contest} />
+            <ArenaCard
+              key={contest.contest_id}
+              contest={contest}
+              onUpdate={fetchContests}
+            />
           ))}
         </div>
       )}
