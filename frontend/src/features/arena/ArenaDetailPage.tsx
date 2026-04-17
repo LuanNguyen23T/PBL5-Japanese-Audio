@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { CalendarClock, CheckCircle2, Clock3, LockKeyhole, Medal, PlayCircle, Trophy, Users } from 'lucide-react'
+import {
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  LockKeyhole,
+  Medal,
+  Pencil,
+  PlayCircle,
+  Trophy,
+  Users,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { useAuth } from '@/context/AuthContext'
+import { toast } from '@/hooks/use-toast'
 import { arenaClient, getArenaStatus, type ArenaContest } from './arenaClient'
 
 function formatDateTime(value: string) {
@@ -27,11 +39,12 @@ function avatarFallback(name: string) {
 export default function ArenaDetailPage() {
   const { contestId = '' } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [contest, setContest] = useState<ArenaContest | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
+  const fetchContest = () => {
     arenaClient
       .getContest(contestId)
       .then((data) => {
@@ -43,19 +56,40 @@ export default function ArenaDetailPage() {
       })
       .catch((err: Error) => setError(err.message || 'Không thể tải chi tiết cuộc thi'))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchContest()
   }, [contestId])
 
   const status = useMemo(() => (contest ? getArenaStatus(contest) : 'upcoming'), [contest])
   const canJoin = !!contest && (status === 'upcoming' || status === 'ongoing')
   const canCompete = !!contest && contest.joined && status === 'ongoing' && !contest.result_id
-  const podium = contest?.leaderboard.slice(0, 3) ?? []
+  const podium = useMemo(() => contest?.leaderboard.slice(0, 3) ?? [], [contest])
+  const podiumOrdered = useMemo(() => {
+    if (podium.length === 3) return [podium[1], podium[0], podium[2]]
+    if (podium.length === 2) return [podium[1], podium[0]]
+    return podium
+  }, [podium])
   const rankingList = contest?.leaderboard.slice(3) ?? []
+
+  const isOwner = !!contest && (user?.id === contest.creator_id || user?.role === 'admin')
+
 
   const handleJoin = async () => {
     if (!contest || !canJoin) return
 
     const updated = await arenaClient.joinContest(contest.contest_id)
-    if (updated) setContest(updated)
+    if (updated) {
+      setContest(updated)
+      toast({
+        title: 'Thành công',
+        description: 'Bạn đã tham gia cuộc thi thành công!',
+      })
+      setTimeout(() => {
+        window.location.reload()
+      }, 800)
+    }
   }
 
   if (loading) {
@@ -74,15 +108,34 @@ export default function ArenaDetailPage() {
     <div className="mx-auto max-w-6xl space-y-8 p-2">
       <section className="overflow-hidden rounded-[28px] border border-orange-200/70 bg-gradient-to-br from-orange-100 via-amber-50 to-white dark:border-orange-900/40 dark:from-orange-950/30 dark:via-amber-950/10 dark:to-background">
         <div className="grid gap-8 p-8 lg:grid-cols-[1.3fr_0.7fr]">
-          <div>
-            <span
-              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${arenaClient.getStatusClasses(
-                status
-              )}`}
-            >
-              {arenaClient.getStatusLabel(status)}
-            </span>
-            <h1 className="mt-4 text-3xl font-bold text-foreground">{contest.title}</h1>
+          <div className="relative">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${arenaClient.getStatusClasses(
+                  status
+                )}`}
+              >
+                {arenaClient.getStatusLabel(status)}
+              </span>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+              <h1 className="text-3xl font-bold text-foreground">{contest.title}</h1>
+              {isOwner && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 border-orange-200 bg-white/50 hover:bg-orange-50 dark:bg-slate-800/50"
+                    onClick={() => navigate(`/arena/${contest.contest_id}/edit`)}
+                  >
+                    <Pencil className="h-4 w-4 text-blue-600" />
+                    Sửa
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <p className="mt-4 max-w-3xl text-sm leading-7 text-muted-foreground">
               {contest.description}
             </p>
@@ -222,14 +275,14 @@ export default function ArenaDetailPage() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 md:grid-cols-3">
-                {podium.map((entry, index) => (
+              <div className="grid gap-4 items-end md:grid-cols-3">
+                {podiumOrdered.map((entry) => (
                   <div
                     key={entry.user_id}
-                    className={`rounded-3xl border p-5 text-center ${
-                      index === 0
-                        ? 'border-amber-300 bg-gradient-to-b from-amber-100 to-white'
-                        : index === 1
+                    className={`rounded-3xl border p-5 text-center transition-all ${
+                      entry.rank === 1
+                        ? 'border-amber-400 bg-gradient-to-b from-amber-100 to-white shadow-xl shadow-amber-200/50 md:scale-110 z-10'
+                        : entry.rank === 2
                           ? 'border-slate-300 bg-gradient-to-b from-slate-100 to-white'
                           : 'border-orange-200 bg-gradient-to-b from-orange-100 to-white'
                     }`}

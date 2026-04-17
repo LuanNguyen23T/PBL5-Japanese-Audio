@@ -151,6 +151,10 @@ const routes = {
       element: <ArenaDetailPage />,
     },
     {
+      path: 'arena/:contestId/edit',
+      element: <CreateArenaPage />,
+    },
+    {
       path: 'arena/:contestId/take',
       element: <ArenaTakePage />,
     },

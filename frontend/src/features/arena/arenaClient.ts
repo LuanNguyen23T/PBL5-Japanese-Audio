@@ -46,6 +46,17 @@ export interface ArenaContestCreatePayload {
   exam_id: string
 }
 
+export interface ArenaContestUpdatePayload {
+  title?: string
+  description?: string
+  min_jlpt_level?: JLPTLevel
+  max_participants?: number | null
+  time_limit?: number
+  start_time?: string
+  end_time?: string
+  exam_id?: string
+}
+
 interface ArenaContestListResponse {
   contests: ArenaContest[]
 }
@@ -99,6 +110,12 @@ export const arenaClient = {
   createContest: (payload: ArenaContestCreatePayload) =>
     apiFetch(`${API_BASE}/api/arena/contests`, {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }).then((response) => handleResponse<ArenaContest>(response)),
+
+  updateContest: (contestId: string, payload: ArenaContestUpdatePayload) =>
+    apiFetch(`${API_BASE}/api/arena/contests/${contestId}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     }).then((response) => handleResponse<ArenaContest>(response)),
 
