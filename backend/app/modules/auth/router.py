@@ -5,7 +5,7 @@ from pydantic import EmailStr
 
 from app.db.session import get_db
 from app.modules.users.models import User
-from app.modules.auth.schemas import Token, UserCreate, LoginRequest, ChangePasswordRequest, RefreshTokenRequest
+from app.modules.auth.schemas import Token, UserCreate, LoginRequest, ChangePasswordRequest, RefreshTokenRequest, RequestPasswordResetRequest, ResetPasswordRequest
 from app.modules.users.schemas import UserResponse, UserMeUpdate
 from app.modules.auth.service import AuthService
 from app.modules.users.service import UserService
@@ -142,21 +142,20 @@ async def change_password(
 
 @router.post("/request-password-reset")
 async def request_password_reset(
-    email: EmailStr,
+    request: RequestPasswordResetRequest,
     service: AuthService = Depends(get_auth_service)
 ):
     """
     Request password reset.
     """
-    return await service.request_password_reset(email)
+    return await service.request_password_reset(request.email)
 
 @router.post("/reset-password")
 async def reset_password(
-    token: str,
-    new_password: str,
+    data: ResetPasswordRequest,
     service: AuthService = Depends(get_auth_service)
 ):
     """
     Reset password using verification code.
     """
-    return await service.reset_password(token, new_password)
+    return await service.reset_password(data)

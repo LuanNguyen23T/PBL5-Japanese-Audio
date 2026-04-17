@@ -84,7 +84,8 @@ export default function ProfilePage() {
  try {
  await profileApi.changePassword({
  old_password: passwordData.old_password,
- new_password: passwordData.new_password
+ new_password: passwordData.new_password,
+ confirm_new_password: passwordData.confirm_password
  });
  setMessage({ type: 'success', text: 'Password changed successfully' });
  setPasswordData({ old_password: '', new_password: '', confirm_password: '' });

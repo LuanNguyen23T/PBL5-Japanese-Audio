@@ -140,7 +140,7 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
               )}
 
               {/* Spider Chart / Radar Chart */}
-              {data.skill_metrics && Object.keys(data.skill_metrics).length > 1 && (
+              {data && (
                 <div className="rounded-[24px] border border-border bg-card p-6 shadow-sm">
                   <div className="mb-2 text-center">
                     <h4 className="text-xl font-black text-foreground">Bản đồ Năng lực Đồng bộ</h4>
@@ -152,11 +152,16 @@ export function CompetencyAnalysisModal({ resultId, onClose }: CompetencyAnalysi
                         cx="50%" 
                         cy="50%" 
                         outerRadius="75%" 
-                        data={Object.entries(data.skill_metrics).map(([subject, A]) => ({
-                          subject,
-                          A,
-                          fullMark: 100,
-                        }))}
+                        data={(() => {
+                          const defaultSkills = ["Hiểu vấn đề", "Hiểu điểm chính", "Hiểu khái quát", "Phản xạ nhanh", "Hiểu tổng hợp"];
+                          const metrics = data.skill_metrics || {};
+                          const allSkills = Array.from(new Set([...defaultSkills, ...Object.keys(metrics)]));
+                          return allSkills.map(subject => ({
+                            subject,
+                            A: metrics[subject] || 0,
+                            fullMark: 100,
+                          }));
+                        })()}
                       >
                         <PolarGrid stroke="var(--border)" strokeDasharray="3 3" />
                         <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--muted-foreground)', fontSize: 13, fontWeight: 600 }} />

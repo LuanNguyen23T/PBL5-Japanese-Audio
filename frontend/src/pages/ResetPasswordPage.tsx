@@ -38,7 +38,7 @@ export default function ResetPasswordPage() {
  setMessage(null);
 
  try {
- await authApi.resetPassword(token, password);
+ await authApi.resetPassword(token, password, confirmPassword);
  setMessage({ type: 'success', text: 'Password reset successfully. Redirecting to login...' });
  setTimeout(() => navigate('/login'), 2000);
  } catch (error: any) {

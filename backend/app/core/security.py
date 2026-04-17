@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.db.session import get_db
+from app.modules.users.models import User
 
 settings = get_settings()
 
@@ -50,11 +52,14 @@ def create_refresh_token(data: dict) -> str:
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Get current authenticated user from JWT token."""
-    from app.modules.users.models import User
-    from app.db.session import get_db
-    
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    """
+    Get current logged in user from token.
+    Enforces active and non-locked status.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -69,22 +74,20 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
 
-    # Get database session
-    async for db in get_db():
-        result = await db.execute(select(User).filter(User.email == email))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise credentials_exception
-        
-        # Check if account is locked
-        if user.is_locked():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Account is locked until {user.locked_until.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-            )
-        
-        
-        return user
+    # Get user from database session provided by FastAPI Depends
+    result = await db.execute(select(User).filter(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise credentials_exception
+    
+    # Check if account is locked or inactive
+    if not user.is_active or user.is_locked():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết."
+        )
+    
+    return user
 
 
 class RoleChecker:

@@ -11,7 +11,8 @@ from pydantic import EmailStr
 
 from app.core.config import get_settings
 from app.modules.users.models import User
-from app.modules.auth.schemas import UserCreate, LoginRequest, ChangePasswordRequest
+from app.modules.auth.schemas import UserCreate, LoginRequest, ChangePasswordRequest, ResetPasswordRequest
+from app.shared.email import send_password_reset_link_email, send_password_changed_notification_email
 from app.modules.users.repository import UserRepository
 from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token
 from app.shared.exceptions import (
@@ -65,6 +66,12 @@ class AuthService:
         if not user or not verify_password(login_data.password, user.hashed_password):
             raise InvalidCredentialsException()
 
+        if not user.is_active or user.is_locked():
+            raise HTTPException(
+                status_code=403,
+                detail="Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết."
+            )
+
         return self._build_token_pair(user)
 
     async def request_password_reset(self, email: EmailStr) -> dict:
@@ -73,19 +80,36 @@ class AuthService:
         if user:
             user.generate_reset_token()
             await self.repository.update(user)
+            
+            # Send email
+            frontend_url = self.settings.FRONTEND_URL.rstrip("/")
+            reset_link = f"{frontend_url}/reset-password?token={user.reset_token}"
+            send_password_reset_link_email(user, reset_link)
 
         # Always return same message for security
         return {
             "message": "If an account exists with this email, a password reset link will be sent"
         }
 
-    async def reset_password(self, token: str, new_password: str) -> dict:
+    async def reset_password(self, data: ResetPasswordRequest) -> dict:
         """Reset user password using reset token."""
-        user = await self.repository.get_by_reset_token(token)
+        user = await self.repository.get_by_reset_token(data.token)
         if not user:
-            raise InvalidResetTokenException()
+            raise InvalidResetTokenException(detail="Liên kết đã hết hạn hoặc không hợp lệ")
 
-        user.hashed_password = get_password_hash(new_password)
+        # Validate token expiration
+        token_parts = data.token.split(":")
+        if len(token_parts) == 2:
+            try:
+                expires_at = int(token_parts[1])
+                if int(datetime.utcnow().timestamp()) > expires_at:
+                    user.clear_reset_token()
+                    await self.repository.update(user)
+                    raise InvalidResetTokenException(detail="Liên kết đã hết hạn hoặc không hợp lệ")
+            except ValueError:
+                pass
+
+        user.hashed_password = get_password_hash(data.new_password)
         user.clear_reset_token()
         await self.repository.update(user)
 
@@ -110,17 +134,26 @@ class AuthService:
         if not user:
             raise InvalidCredentialsException(detail="User not found")
 
+        if not user.is_active or user.is_locked():
+            raise HTTPException(
+                status_code=403,
+                detail="Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết."
+            )
+
         return self._build_token_pair(user)
 
     async def change_password(self, user: User, password_data: ChangePasswordRequest) -> dict:
         """Change user password."""
         # Verify old password
         if not verify_password(password_data.old_password, user.hashed_password):
-            raise InvalidCredentialsException(detail="Incorrect old password")
+            raise InvalidCredentialsException(detail="Mật khẩu hiện tại không chính xác")
 
         # Update password
         user.hashed_password = get_password_hash(password_data.new_password)
         await self.repository.update(user)
+
+        # Send notification
+        send_password_changed_notification_email(user)
 
         return {"message": "Password changed successfully"}
 

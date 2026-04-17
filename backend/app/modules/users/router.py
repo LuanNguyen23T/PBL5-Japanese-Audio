@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -107,7 +107,10 @@ async def lock_user(
     
     🔒 **Requires**: Admin role
     """
-    return await service.lock_user(user_id, lock_data.duration_hours)
+    try:
+        return await service.lock_user(user_id, lock_data.duration_hours, lock_data.reason, lock_data.detailed_reason, executor=admin)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
 @router.post("/{user_id}/unlock", response_model=UserResponse)
@@ -121,7 +124,10 @@ async def unlock_user(
     
     🔒 **Requires**: Admin role
     """
-    return await service.unlock_user(user_id)
+    try:
+        return await service.unlock_user(user_id, executor=admin)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
 @router.post("/{user_id}/reset-password", response_model=AdminResetPasswordResponse)

@@ -15,7 +15,9 @@ from typing import Dict, Any, List
 from app.shared.email import (
     send_verification_email,
     send_update_notification,
-    send_password_reset_by_admin
+    send_password_reset_by_admin,
+    send_account_locked_email,
+    send_account_unlocked_email
 )
 from app.shared.webhook import trigger_n8n_webhook
 from app.shared.utils import setup_logger
@@ -223,23 +225,46 @@ class UserService:
 
         return user
 
-    async def lock_user(self, user_id: int, duration_hours: int) -> User:
+    async def lock_user(self, user_id: int, duration_hours: int, reason: str = "Vi phạm chính sách bảo mật / Hoạt động bất thường", detailed_reason: str = None, executor: User = None) -> User:
         """
         Lock user account temporarily.
         
         Args:
             user_id: User ID to lock
             duration_hours: Lock duration in hours
+            reason: Reason for locking
+            detailed_reason: Detailed reason for locking
+            executor: The admin user performing the action
         
         Returns:
             Updated User object
         """
         user = await self.get_user_by_id(user_id)
         
-        user.locked_until = datetime.utcnow() + timedelta(hours=duration_hours)
+        # Security constraints
+        if executor and executor.id == user.id:
+            raise ValueError("You cannot lock your own account")
+        if user.is_superuser:
+            raise ValueError("Cannot lock a super user account")
+            
+        
+        if duration_hours == -1:
+            user.is_active = False
+            user.locked_until = None
+            logger.info(f"User {user.email} permanently locked")
+        else:
+            user.locked_until = datetime.utcnow() + timedelta(hours=duration_hours)
+            user.is_active = False # Mark as inactive too for consistency
+            logger.info(f"User {user.email} locked until {user.locked_until}")
+        
         user = await self.repository.update(user)
         
-        logger.info(f"User {user.email} locked until {user.locked_until}")
+        # Send notification email
+        try:
+            send_account_locked_email(user, duration_hours, reason, detailed_reason)
+            logger.info(f"Lock notification sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send lock notification: {str(e)}")
 
         # Trigger n8n automation
         await trigger_n8n_webhook("user.locked", {
@@ -251,22 +276,37 @@ class UserService:
 
         return user
 
-    async def unlock_user(self, user_id: int) -> User:
+    async def unlock_user(self, user_id: int, executor: User = None) -> User:
         """
         Unlock user account.
         
         Args:
             user_id: User ID to unlock
+            executor: The admin user performing the action
         
         Returns:
             Updated User object
         """
         user = await self.get_user_by_id(user_id)
         
+        # Security constraints
+        if executor and executor.id == user.id:
+            raise ValueError("You cannot unlock your own account")
+        if user.is_superuser:
+            raise ValueError("Super users cannot be locked/unlocked")
+        
         user.locked_until = None
+        user.is_active = True
         user = await self.repository.update(user)
         
         logger.info(f"User {user.email} unlocked")
+
+        # Send notification email
+        try:
+            send_account_unlocked_email(user)
+            logger.info(f"Unlock notification sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send unlock notification: {str(e)}")
 
         # Trigger n8n automation
         await trigger_n8n_webhook("user.unlocked", {
@@ -310,6 +350,7 @@ class UserService:
         })
         
         return AdminResetPasswordResponse(
+            message="Password reset successfully",
             temporary_password=temp_password
         )
 
