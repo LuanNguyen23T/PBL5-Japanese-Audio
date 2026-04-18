@@ -37,7 +37,7 @@ class ProfileApiClient {
  }
 
  // Change password
- async changePassword(data: { old_password: string; new_password: string }) {
+ async changePassword(data: { old_password: string; new_password: string; confirm_new_password: string }) {
  const response = await apiFetch(`${API_BASE_URL}/api/auth/me/change-password`, {
  method: 'POST',
  body: JSON.stringify(data),

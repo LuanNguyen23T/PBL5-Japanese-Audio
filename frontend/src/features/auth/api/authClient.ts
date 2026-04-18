@@ -26,16 +26,16 @@ class AuthApiClient {
  }
 
  // Reset password
- async resetPassword(token: string, newPassword: string) {
- const queryParams = new URLSearchParams({ token, new_password: newPassword });
- const response = await fetch(`${API_BASE_URL}/api/auth/reset-password?${queryParams}`, {
- method: 'POST',
- headers: {
- 'Content-Type': 'application/json',
- },
- });
- return this.handleResponse<{ message: string }>(response);
- }
+ async resetPassword(token: string, newPassword: string, confirmPassword: string) {
+  const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+  method: 'POST',
+  headers: {
+  'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ token, new_password: newPassword, confirm_password: confirmPassword }),
+  });
+  return this.handleResponse<{ message: string }>(response);
+  }
 }
 
 export const authApi = new AuthApiClient();

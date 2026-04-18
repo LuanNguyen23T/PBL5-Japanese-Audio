@@ -6,6 +6,7 @@ import { Pagination } from './components/Pagination';
 import { CreateUserModal } from './components/CreateUserModal';
 import { EditUserModal } from './components/EditUserModal';
 import { LockUserDialog } from './components/LockUserDialog';
+import { UnlockUserDialog } from './components/UnlockUserDialog';
 import { ResetPasswordDialog } from './components/ResetPasswordDialog';
 import { Toast } from '../../../components/Toast';
 import { useUsers } from './hooks/useUsers';
@@ -24,6 +25,7 @@ export function UsersPage() {
  const [showCreateModal, setShowCreateModal] = useState(false);
  const [showEditModal, setShowEditModal] = useState(false);
  const [showLockDialog, setShowLockDialog] = useState(false);
+ const [showUnlockDialog, setShowUnlockDialog] = useState(false);
  const [showResetDialog, setShowResetDialog] = useState(false);
  const [selectedUser, setSelectedUser] = useState<User | null>(null);
  const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -64,15 +66,15 @@ export function UsersPage() {
  }
  };
 
- const handleLockUser = async (userId: number, durationHours: number) => {
- try {
- await adminApi.lockUser(userId, durationHours);
- setToast({ message: 'User account locked', type: 'success' });
- refetch();
- } catch (err) {
- setToast({ message: err instanceof Error ? err.message : 'Failed to lock user', type: 'error' });
- }
- };
+ const handleLockUser = async (userId: number, durationHours: number, reason: string, detailedReason?: string) => {
+  try {
+  await adminApi.lockUser(userId, durationHours, reason, detailedReason);
+  setToast({ message: 'User account locked', type: 'success' });
+  refetch();
+  } catch (err) {
+  setToast({ message: err instanceof Error ? err.message : 'Failed to lock user', type: 'error' });
+  }
+  };
 
  const handleUnlockUser = async (user: User) => {
  try {
@@ -142,7 +144,7 @@ export function UsersPage() {
  loading={loading}
  onEdit={(user) => { setSelectedUser(user); setShowEditModal(true); }}
  onLock={(user) => { setSelectedUser(user); setShowLockDialog(true); }}
- onUnlock={handleUnlockUser}
+ onUnlock={(user) => { setSelectedUser(user); setShowUnlockDialog(true); }}
  onResetPassword={handleResetPassword}
  />
 
@@ -177,6 +179,13 @@ export function UsersPage() {
  user={selectedUser}
  onClose={() => { setShowLockDialog(false); setSelectedUser(null); }}
  onConfirm={handleLockUser}
+ />
+
+ <UnlockUserDialog
+ isOpen={showUnlockDialog}
+ user={selectedUser}
+ onClose={() => { setShowUnlockDialog(false); setSelectedUser(null); }}
+ onConfirm={handleUnlockUser}
  />
 
  <ResetPasswordDialog

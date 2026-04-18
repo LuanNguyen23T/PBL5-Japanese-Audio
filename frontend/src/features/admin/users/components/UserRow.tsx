@@ -1,6 +1,5 @@
-import { Edit, Lock, Unlock, KeyRound, MoreVertical } from 'lucide-react';
+import { Edit, Lock, Unlock, KeyRound } from 'lucide-react';
 import type { User } from '../types/user';
-import { useState, useRef, useEffect } from 'react';
 
 interface UserRowProps {
  user: User;
@@ -11,20 +10,8 @@ interface UserRowProps {
 }
 
 export function UserRow({ user, onEdit, onLock, onUnlock, onResetPassword }: UserRowProps) {
- const [showActions, setShowActions] = useState(false);
- const menuRef = useRef<HTMLDivElement>(null);
- const isLocked = user.locked_until && new Date(user.locked_until) > new Date();
-
- // Close menu when clicking outside
- useEffect(() => {
- function handleClickOutside(e: MouseEvent) {
- if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
- setShowActions(false);
- }
- }
- if (showActions) document.addEventListener('mousedown', handleClickOutside);
- return () => document.removeEventListener('mousedown', handleClickOutside);
- }, [showActions]);
+ const lockedDate = user.locked_until ? new Date(user.locked_until.endsWith('Z') ? user.locked_until : `${user.locked_until}Z`) : null;
+ const isLocked = lockedDate ? lockedDate > new Date() : false;
 
  const roleBadge = (role: string) => {
  switch (role) {
@@ -102,51 +89,40 @@ export function UserRow({ user, onEdit, onLock, onUnlock, onResetPassword }: Use
 
  {/* Actions */}
  <td className="px-6 py-4 text-right">
- <div className="relative inline-block" ref={menuRef}>
+ <div className="flex items-center justify-end gap-1.5 transition-opacity">
  <button
- onClick={() => setShowActions(!showActions)}
- className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover:opacity-100"
+ onClick={() => onEdit(user)}
+ className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+ title="Chỉnh sửa"
  >
- <MoreVertical className="w-4 h-4" />
- </button>
-
- {showActions && (
- <div className="absolute right-0 top-full mt-1 w-44 bg-card rounded-lg shadow-lg border border-border py-1 z-50">
- <button
- onClick={() => { onEdit(user); setShowActions(false); }}
- className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 transition-colors text-foreground"
- >
- <Edit className="w-3.5 h-3.5 text-muted-foreground" />
- Chỉnh sửa
+ <Edit className="w-4 h-4" />
  </button>
 
  {isLocked ? (
  <button
- onClick={() => { onUnlock(user); setShowActions(false); }}
- className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 transition-colors text-foreground"
+ onClick={() => onUnlock(user)}
+ className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition-colors"
+ title="Mở khoá"
  >
- <Unlock className="w-3.5 h-3.5 text-muted-foreground" />
- Mở khoá
+ <Unlock className="w-4 h-4" />
  </button>
  ) : (
  <button
- onClick={() => { onLock(user); setShowActions(false); }}
- className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 transition-colors text-foreground"
+ onClick={() => onLock(user)}
+ className="p-2 text-muted-foreground hover:text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition-colors"
+ title="Khoá tài khoản"
  >
- <Lock className="w-3.5 h-3.5 text-muted-foreground" />
- Khoá tài khoản
+ <Lock className="w-4 h-4" />
  </button>
  )}
 
  <button
- onClick={() => { onResetPassword(user); setShowActions(false); }}
- className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 transition-colors text-foreground"
+ onClick={() => onResetPassword(user)}
+ className="p-2 text-muted-foreground hover:text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-lg transition-colors"
+ title="Đặt lại mật khẩu"
  >
- <KeyRound className="w-3.5 h-3.5 text-muted-foreground" />
- Đặt lại mật khẩu
+ <KeyRound className="w-4 h-4" />
  </button>
- </div>
- )}
  </div>
  </td>
  </tr>

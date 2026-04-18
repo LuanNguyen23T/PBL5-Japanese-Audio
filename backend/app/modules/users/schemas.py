@@ -103,12 +103,16 @@ class UserUpdate(BaseModel):
 
 class LockUserRequest(BaseModel):
     """Schema for locking a user account."""
-    duration_hours: int = Field(24, gt=0, le=8760, description="Lock duration (hours), max 1 year")
+    duration_hours: int = Field(24, ge=-1, le=8760, description="Lock duration (hours), max 1 year. -1 for permanent ban.")
+    reason: str = Field("Vi phạm chính sách bảo mật / Hoạt động bất thường", description="Reason for locking the account")
+    detailed_reason: Optional[str] = Field(None, description="Detailed text reason for locking the account")
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "duration_hours": 48
+                "duration_hours": 48,
+                "reason": "Vi phạm chính sách bảo mật / Hoạt động bất thường",
+                "detailed_reason": "Có dấu hiệu đăng nhập bất thường từ nhiều IP"
             }
         }
     )

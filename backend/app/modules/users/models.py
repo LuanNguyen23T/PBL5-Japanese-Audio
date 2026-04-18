@@ -26,9 +26,10 @@ class User(Base):
     locked_until = Column(DateTime, nullable=True)
     verification_token = Column(String, unique=True, nullable=True, index=True)
 
-    def generate_reset_token(self):
-        """Generate a secure reset token."""
-        self.reset_token = secrets.token_urlsafe(32)
+    def generate_reset_token(self, expire_minutes: int = 15):
+        """Generate a secure reset token with embedded expiration timestamp."""
+        expires_at = int(datetime.utcnow().timestamp()) + (expire_minutes * 60)
+        self.reset_token = f"{secrets.token_urlsafe(32)}:{expires_at}"
 
     def clear_reset_token(self):
         """Clear password reset token after use."""
