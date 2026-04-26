@@ -29,7 +29,6 @@ export interface TTSGenerateRequest {
   title?: string;
   dialogue_pause?: number;
   narrator_pause?: number;
-  bell_type?: string;
 }
 
 export interface TTSGenerateResponse {

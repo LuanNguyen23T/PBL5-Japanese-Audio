@@ -51,7 +51,6 @@ class TTSRequest(BaseModel):
     speaker_configs: Dict[str, SpeakerConfig]
     dialogue_pause: float = 0.5
     narrator_pause: float = 2.5
-    bell_type: str = "Bell_ban.mp3"
 
 @app.get("/health")
 def health_check():
@@ -65,31 +64,48 @@ def generate_multi_speaker_tts(request: TTSRequest):
     all_audio_chunks = []
     sample_rate = 44100
     
-    # 1. Thêm tiếng chuông vào đầu audio
+    # 1. Thêm tiếng chuông bắt đầu (bellStart.wav) luôn luôn có
     try:
         import librosa
-        bell_path = Path("/app/Bell_audio") / request.bell_type
+        bell_path = Path("/app/Bell_audio/bellStart.wav")
         if bell_path.exists():
             bell_audio, _ = librosa.load(str(bell_path), sr=sample_rate)
-            # Chuẩn hóa âm lượng chuông (0.8)
             bell_max = np.abs(bell_audio).max()
             if bell_max > 0:
                 bell_audio = (bell_audio / bell_max) * 0.8
                 
-            # Tạo khoảng lặng
             silence_1s = np.zeros(sample_rate, dtype=np.float32)
             silence_2s = np.zeros(2 * sample_rate, dtype=np.float32)
             
             all_audio_chunks.extend([silence_1s, bell_audio, silence_2s])
         else:
-            print(f"Warning: Bell audio not found at {bell_path}")
+            print(f"Warning: Start bell audio not found at {bell_path}")
     except Exception as e:
-        print(f"Warning: Failed to load bell audio: {e}")
+        print(f"Warning: Failed to load start bell audio: {e}")
 
     for i, line in enumerate(request.dialogues):
         speaker = line.speaker
         text = line.text
         
+        # Xử lý tiếng chuông kết thúc hội thoại (được đánh dấu từ frontend)
+        if speaker == "__BELL__":
+            try:
+                import librosa
+                end_bell_path = Path("/app/Bell_audio") / text
+                if end_bell_path.exists():
+                    end_bell_audio, _ = librosa.load(str(end_bell_path), sr=sample_rate)
+                    eb_max = np.abs(end_bell_audio).max()
+                    if eb_max > 0:
+                        end_bell_audio = (end_bell_audio / eb_max) * 0.8
+                    
+                    # Thêm 1 khoảng im lặng ngắn trước chuông (nếu cần) và tiếng chuông
+                    pre_silence = np.zeros(int(sample_rate * 0.5), dtype=np.float32)
+                    post_silence = np.zeros(int(sample_rate * 1.0), dtype=np.float32)
+                    all_audio_chunks.extend([pre_silence, end_bell_audio, post_silence])
+            except Exception as e:
+                print(f"Warning: Failed to load end bell audio: {e}")
+            continue
+
         if speaker not in request.speaker_configs:
             raise HTTPException(status_code=400, detail=f"Configuration for speaker '{speaker}' not found.")
             
@@ -182,13 +198,15 @@ def generate_multi_speaker_tts(request: TTSRequest):
             if i < len(request.dialogues) - 1:
                 next_speaker = request.dialogues[i+1].speaker
                 
-                if speaker in ["Người dẫn chuyện", "Giọng câu hỏi"] or next_speaker in ["Người dẫn chuyện", "Giọng câu hỏi"]:
-                    pause_dur = request.narrator_pause
-                else:
-                    pause_dur = request.dialogue_pause
-                    
-                pause_audio = np.zeros(int(sample_rate * pause_dur), dtype=np.float32)
-                all_audio_chunks.append(pause_audio)
+                # Bỏ qua logic pause nếu speaker tiếp theo là chuông
+                if next_speaker != "__BELL__":
+                    if speaker in ["Người dẫn chuyện", "Giọng câu hỏi"] or next_speaker in ["Người dẫn chuyện", "Giọng câu hỏi"]:
+                        pause_dur = request.narrator_pause
+                    else:
+                        pause_dur = request.dialogue_pause
+                        
+                    pause_audio = np.zeros(int(sample_rate * pause_dur), dtype=np.float32)
+                    all_audio_chunks.append(pause_audio)
                 
         except Exception as e:
             import traceback

@@ -41,8 +41,7 @@ async def generate_script(
                 for name, cfg in request.speaker_configs.items()
             },
             "dialogue_pause": request.dialogue_pause,
-            "narrator_pause": request.narrator_pause,
-            "bell_type": request.bell_type
+            "narrator_pause": request.narrator_pause
         }
 
         # Step 1: Forward request to TTS Microservice

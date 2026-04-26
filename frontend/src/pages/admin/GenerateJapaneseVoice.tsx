@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Play, Download, Settings, RefreshCw, AudioLines, FileAudio, Upload, Save, PlayCircle, Loader2, Plus, X, ListMusic, CheckCircle2, Circle, Headphones, Sparkles } from 'lucide-react';
+import { Play, Download, Settings, RefreshCw, AudioLines, FileAudio, Upload, Save, PlayCircle, Loader2, Plus, X, ListMusic, CheckCircle2, Circle, Headphones, Sparkles, Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { ScriptEditor } from '@/features/tts/components/ScriptEditor';
 import { CharacterConfig } from '@/features/tts/components/CharacterConfig';
 import { ttsClient, SpeakerConfig, DialogueLine } from '@/features/tts/api/ttsClient';
 
-function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { dialogues: DialogueLine[], speakers: string[] } {
+function parseScriptTextJLPT(intro: string, dialogue: string, outro: string, includeEndBell: boolean): { dialogues: DialogueLine[], speakers: string[] } {
   const dialogues: DialogueLine[] = [];
   const speakerSet = new Set<string>();
 
@@ -46,7 +46,7 @@ function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { 
     }
   }
 
-  // 2. Parse Dialogue (giữ logic như cũ)
+  // 2. Parse Dialogue
   if (dialogue.trim()) {
     const lines = dialogue.split('\n');
     let currentSpeaker = '';
@@ -64,7 +64,7 @@ function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { 
         currentSpeaker = match[1].trim();
         currentText = match[2];
       } else {
-        if (currentSpeaker === 'Người dẫn chuyện') {
+        if (currentSpeaker === 'Người dẫn chuyện' || currentSpeaker === 'Giọng câu hỏi') {
           currentText += ' ' + trimmed;
         } else {
           if (currentSpeaker && currentText) {
@@ -80,6 +80,11 @@ function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { 
     }
   }
 
+  // Chèn chuông kết thúc nếu có bật
+  if (includeEndBell) {
+    addLine('__BELL__', 'bellEndScript.wav');
+  }
+
   // 3. Parse Outro
   if (outro.trim()) {
     addLine('Giọng câu hỏi', outro.replace(/\n/g, ' '));
@@ -87,7 +92,8 @@ function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { 
 
   return {
     dialogues,
-    speakers: Array.from(speakerSet)
+    // Loại trừ '__BELL__' khỏi danh sách speakers hiển thị trên UI
+    speakers: Array.from(speakerSet).filter(s => s !== '__BELL__')
   };
 }
 
@@ -95,6 +101,7 @@ const GenerateJapaneseVoicePage: React.FC = () => {
   const [introText, setIntroText] = useState<string>('');
   const [dialogueText, setDialogueText] = useState<string>('');
   const [outroText, setOutroText] = useState<string>('');
+  const [includeEndBell, setIncludeEndBell] = useState<boolean>(true);
   
   const [speakerConfigs, setSpeakerConfigs] = useState<Record<string, SpeakerConfig>>({});
   const [isGenerating, setIsGenerating] = useState(false);
@@ -104,10 +111,9 @@ const GenerateJapaneseVoicePage: React.FC = () => {
   // Options
   const [dialoguePause, setDialoguePause] = useState<number>(1.0);
   const [narratorPause, setNarratorPause] = useState<number>(5.0);
-  const [bellType, setBellType] = useState<string>('Bell_ban.mp3');
 
   // Derived state
-  const { dialogues, speakers } = useMemo(() => parseScriptTextJLPT(introText, dialogueText, outroText), [introText, dialogueText, outroText]);
+  const { dialogues, speakers } = useMemo(() => parseScriptTextJLPT(introText, dialogueText, outroText, includeEndBell), [introText, dialogueText, outroText, includeEndBell]);
 
   const handleDownload = async () => {
     if (!audioUrl) return;
@@ -180,8 +186,7 @@ const GenerateJapaneseVoicePage: React.FC = () => {
         speaker_configs: finalConfigs,
         title: `Script_${new Date().getTime()}`,
         dialogue_pause: dialoguePause,
-        narrator_pause: narratorPause,
-        bell_type: bellType
+        narrator_pause: narratorPause
       });
 
       setPipelineStep(3); // Bước 3: Đồng bộ dữ liệu
@@ -239,7 +244,7 @@ const GenerateJapaneseVoicePage: React.FC = () => {
               </div>
             </div>
 
-            <div className="border-t border-blue-200/50 dark:border-blue-800/50 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="border-t border-blue-200/50 dark:border-blue-800/50 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <Label className="text-sm font-semibold text-blue-800 dark:text-blue-300">Nghỉ Lời dẫn (Narrator)</Label>
@@ -264,19 +269,6 @@ const GenerateJapaneseVoicePage: React.FC = () => {
                   className="[&_[role=slider]]:border-blue-500 [&_[role=slider]]:focus:ring-blue-500"
                 />
               </div>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <Label className="text-sm font-semibold text-blue-800 dark:text-blue-300">Loại chuông (JLPT Bell)</Label>
-                </div>
-                <select 
-                  className="w-full text-sm p-2 rounded-md border border-blue-200 dark:border-blue-800/50 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
-                  value={bellType}
-                  onChange={e => setBellType(e.target.value)}
-                >
-                  <option value="Bell_ban.mp3">Bell_ban.mp3</option>
-                  <option value="Bell_mondai.mp3">Bell_mondai.mp3</option>
-                </select>
-              </div>
             </div>
           </div>
 
@@ -294,6 +286,22 @@ const GenerateJapaneseVoicePage: React.FC = () => {
               placeholder="Ví dụ:\n男: こんにちは。\n女: はい、こんにちは。"
               value={dialogueText}
               onChange={setDialogueText}
+              actionIcon={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`h-8 px-2 border transition-all ${
+                    includeEndBell
+                      ? "bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-400"
+                      : "bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700"
+                  }`}
+                  onClick={() => setIncludeEndBell(!includeEndBell)}
+                  title={includeEndBell ? "Tắt chuông kết thúc" : "Bật chuông kết thúc"}
+                >
+                  {includeEndBell ? <Bell className="w-4 h-4 mr-1.5" /> : <BellOff className="w-4 h-4 mr-1.5" />}
+                  <span className="text-xs font-medium">{includeEndBell ? "Có chuông" : "Không chuông"}</span>
+                </Button>
+              }
             />
             
             <ScriptEditor
