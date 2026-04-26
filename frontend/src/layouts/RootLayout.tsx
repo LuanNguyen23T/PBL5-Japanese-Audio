@@ -86,6 +86,18 @@ function Navigation() {
                   {t('nav.audioLibrary', 'Audio Library')}
                 </Link>
               )}
+              {isAuthenticated && (
+                <Link
+                  to="/admin/tts-voice"
+                  className={
+                    location.pathname === '/admin/tts-voice'
+                      ? `${linkBase} ${activeLink}`
+                      : linkBase
+                  }
+                >
+                  Generate Japanese Voice
+                </Link>
+              )}
             </div>
           </div>
 

@@ -1,0 +1,7 @@
+models/
+output/
+logs/
+__pycache__/
+*.pyc
+*.wav
+*.mp3
