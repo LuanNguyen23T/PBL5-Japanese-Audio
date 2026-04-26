@@ -32,6 +32,7 @@ const ArenaPage = lazy(() => import('../features/arena/ArenaPage'))
 const CreateArenaPage = lazy(() => import('../features/arena/CreateArenaPage'))
 const ArenaDetailPage = lazy(() => import('../features/arena/ArenaDetailPage'))
 const ArenaTakePage = lazy(() => import('../features/arena/ArenaTakePage'))
+const GenerateJapaneseVoice = lazy(() => import('../pages/admin/GenerateJapaneseVoice'))
 
 // Error boundary component
 function ErrorBoundary() {
@@ -97,6 +98,10 @@ const routes = {
     {
       path: 'admin/analytics',
       element: <AdminAnalytics />,
+    },
+    {
+      path: 'admin/tts-voice',
+      element: <GenerateJapaneseVoice />,
     },
     {
       path: 'profile',

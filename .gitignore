@@ -122,3 +122,8 @@ output_v2/
 .LSOverride
 
 backend/app/generated/
+
+# AI Models — downloaded via download_models.py, do not commit (~2 GB)
+R&D/StyleBertVITS2/models/
+R&D/StyleBertVITS2/output/
+app/models/

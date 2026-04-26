@@ -202,3 +202,69 @@ mkdocs serve
 Or browse the [`docs/`](docs/) folder directly.
 
 ---
+
+### 5. Japanese Voice Cloning Service (Style-Bert-VITS2)
+
+> Requires **Docker Desktop** to be running. Recommended: 8 GB+ RAM.
+
+```bash
+cd R&D/StyleBertVITS2
+
+# Step 1: Build the Docker image (10–20 min, first time only)
+docker compose build
+
+# Step 2: Download Japanese voice models — ~2 GB total
+docker compose run --rm sbvits2 python download_models.py
+
+# Step 3: Run the multi-speaker synthesis test
+docker compose run --rm sbvits2 python test_multi_speaker.py
+
+# Step 4: Start the TTS API server (port 7861)
+docker compose up -d
+
+# Verify the service is healthy
+curl http://localhost:7861/health
+```
+
+TTS API available at: `http://localhost:7861`
+
+To test multi-speaker synthesis inside the container:
+
+```bash
+docker exec -it style-bert-vits2 python test_multi_speaker.py
+# Output saved to: R&D/StyleBertVITS2/output/multi_speaker_test.wav
+```
+
+**Available voice models:**
+
+| Key | Description |
+|---|---|
+| `jvnv-F1-jp` | Female, Standard / Teacher |
+| `jvnv-F2-jp` | Female, Mature / Calm |
+| `jvnv-M1-jp` | Male, Young Adult |
+| `jvnv-M2-jp` | Male, Deep / Elderly |
+| `jp-extra-cool-young` | Male, Young boy (Rikka) |
+| `jp-extra-amazing` | Female, Energetic / Cute |
+| `myvoiceclone-male` | Male, Middle-aged clone |
+
+---
+
+## Japanese Voice Cloning
+
+A built-in admin feature for generating JLPT listening audio from a dialogue script using AI voice synthesis.
+
+- **Multi-speaker synthesis** — Each character is assigned a different Japanese voice model
+- **Voice cloning** — Upload a reference audio sample to clone intonation style
+- **Emotion styles** — `Neutral`, `Happy`, `Sad`, `Angry` (model-dependent)
+- **Drag and drop** — Reference audio can be dragged directly into the config panel
+- **Auto memory cleanup** — The TTS container restarts automatically after each generation
+
+**Usage (Web UI):**
+
+1. Log in as Admin, navigate to **Generate Japanese Voice**
+2. Type a dialogue script using the format `SpeakerLabel: dialogue text`
+3. Configure voice model, emotion style, and pitch per speaker
+4. Optionally upload a reference `.wav` file (drag and drop supported)
+5. Click **Generate** — audio is synthesized, uploaded to Cloudinary, and saved automatically
+
+---

@@ -21,6 +21,7 @@ from app.modules.random_exam.router import router as random_exam_router
 from app.modules.arena.router import router as arena_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.notifications.router import router as notifications_router
+from app.modules.tts.router import router as tts_router
 from app.db.session import init_db, engine
 from app.core.config import get_settings
 
@@ -199,5 +200,6 @@ app.include_router(ai_chat_router, prefix="/api")
 
 app.include_router(analytics_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
+app.include_router(tts_router, prefix="/api")
 
 logger.info("Application routes configured")

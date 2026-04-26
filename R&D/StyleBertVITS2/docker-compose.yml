@@ -1,0 +1,34 @@
+# ============================================================
+# Style-Bert-VITS2 - Docker Compose (CPU Mode - Default)
+# Usage:
+#   CPU mode  : docker compose up
+#   GPU mode  : docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# ============================================================
+
+services:
+  sbvits2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: style-bert-vits2
+    image: pbl5-style-bert-vits2:latest
+
+    # Mount volumes (map entire R&D dir for live code updates)
+    volumes:
+      - ./:/app
+
+    # Port for Gradio UI and API
+    ports:
+      - "7860:7860"
+      - "7861:7861"
+
+    # Environment
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEVICE=cpu  # Override in gpu compose file
+
+    # Auto-restart on failure during testing
+    restart: "no"
+
+    # Run FastAPI Server
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7861"]
