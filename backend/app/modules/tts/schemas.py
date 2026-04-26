@@ -18,6 +18,7 @@ class TTSGenerateRequest(BaseModel):
     title: Optional[str] = Field("Untitled", description="Output audio file name")
     dialogue_pause: float = Field(0.5, description="Pause duration between dialogues")
     narrator_pause: float = Field(2.5, description="Pause duration after narrator")
+    bell_type: str = Field("Bell_ban.mp3", description="Bell sound to play at the beginning")
 
 class TTSGenerateResponse(BaseModel):
     audio_id: Optional[str] = Field(None, description="Audio UUID")

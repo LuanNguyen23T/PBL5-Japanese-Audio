@@ -51,6 +51,7 @@ class TTSRequest(BaseModel):
     speaker_configs: Dict[str, SpeakerConfig]
     dialogue_pause: float = 0.5
     narrator_pause: float = 2.5
+    bell_type: str = "Bell_ban.mp3"
 
 @app.get("/health")
 def health_check():
@@ -63,6 +64,27 @@ def generate_multi_speaker_tts(request: TTSRequest):
 
     all_audio_chunks = []
     sample_rate = 44100
+    
+    # 1. Thêm tiếng chuông vào đầu audio
+    try:
+        import librosa
+        bell_path = Path("/app/Bell_audio") / request.bell_type
+        if bell_path.exists():
+            bell_audio, _ = librosa.load(str(bell_path), sr=sample_rate)
+            # Chuẩn hóa âm lượng chuông (0.8)
+            bell_max = np.abs(bell_audio).max()
+            if bell_max > 0:
+                bell_audio = (bell_audio / bell_max) * 0.8
+                
+            # Tạo khoảng lặng
+            silence_1s = np.zeros(sample_rate, dtype=np.float32)
+            silence_2s = np.zeros(2 * sample_rate, dtype=np.float32)
+            
+            all_audio_chunks.extend([silence_1s, bell_audio, silence_2s])
+        else:
+            print(f"Warning: Bell audio not found at {bell_path}")
+    except Exception as e:
+        print(f"Warning: Failed to load bell audio: {e}")
 
     for i, line in enumerate(request.dialogues):
         speaker = line.speaker
@@ -124,7 +146,7 @@ def generate_multi_speaker_tts(request: TTSRequest):
             # Khi có reference audio, tăng style_weight để ngữ điệu được học rõ hơn
             # Mặc định thư viện là 1.0 - không đủ để cảm nhận sự khác biệt
             has_ref_audio = ref_path is not None
-            style_weight = 2.0 if has_ref_audio else 1.0
+            style_weight = 4.0 if has_ref_audio else 1.0
 
             sr, audio = tts_model.infer(
                 text=text,
@@ -160,7 +182,7 @@ def generate_multi_speaker_tts(request: TTSRequest):
             if i < len(request.dialogues) - 1:
                 next_speaker = request.dialogues[i+1].speaker
                 
-                if speaker == "Người dẫn chuyện" or next_speaker == "Người dẫn chuyện":
+                if speaker in ["Người dẫn chuyện", "Giọng câu hỏi"] or next_speaker in ["Người dẫn chuyện", "Giọng câu hỏi"]:
                     pause_dur = request.narrator_pause
                 else:
                     pause_dur = request.dialogue_pause

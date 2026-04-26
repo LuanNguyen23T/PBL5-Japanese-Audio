@@ -9,50 +9,80 @@ import { ScriptEditor } from '@/features/tts/components/ScriptEditor';
 import { CharacterConfig } from '@/features/tts/components/CharacterConfig';
 import { ttsClient, SpeakerConfig, DialogueLine } from '@/features/tts/api/ttsClient';
 
-// Helper to parse text into dialogues
-function parseScriptText(text: string): { dialogues: DialogueLine[], speakers: string[] } {
-  const lines = text.split('\n');
+function parseScriptTextJLPT(intro: string, dialogue: string, outro: string): { dialogues: DialogueLine[], speakers: string[] } {
   const dialogues: DialogueLine[] = [];
   const speakerSet = new Set<string>();
 
-  // Matches "Speaker Name:" or "Speaker Name："
   const speakerRegex = /^([^:：]+)[:：]\s*(.*)$/;
 
-  let currentSpeaker = '';
-  let currentText = '';
+  const addLine = (speaker: string, text: string) => {
+    if (speaker && text) {
+      dialogues.push({ speaker, text: text.trim() });
+      speakerSet.add(speaker);
+    }
+  };
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const match = trimmed.match(speakerRegex);
+  // 1. Parse Intro
+  if (intro.trim()) {
+    const lines = intro.split('\n');
+    const firstLine = lines[0].trim();
+    const match = firstLine.match(speakerRegex);
+    
     if (match) {
-      // If we already have a block of text, save it
-      if (currentSpeaker && currentText) {
-        dialogues.push({ speaker: currentSpeaker, text: currentText.trim() });
-        speakerSet.add(currentSpeaker);
+      const label = match[1].trim();
+      // Add the label as its own spoken word (e.g. "一番")
+      addLine(label, label);
+      
+      let narratorText = match[2];
+      for (let i = 1; i < lines.length; i++) {
+        const lineTrimmed = lines[i].trim();
+        if (lineTrimmed) narratorText += ' ' + lineTrimmed;
       }
-      currentSpeaker = match[1].trim();
-      currentText = match[2];
+      if (narratorText.trim()) {
+        addLine('Giọng câu hỏi', narratorText);
+      }
     } else {
-      // If it has no colon, it's a Narrator line.
-      if (currentSpeaker === 'Người dẫn chuyện') {
-        currentText += ' ' + trimmed;
-      } else {
-        if (currentSpeaker && currentText) {
-          dialogues.push({ speaker: currentSpeaker, text: currentText.trim() });
-          speakerSet.add(currentSpeaker);
-        }
-        currentSpeaker = 'Người dẫn chuyện';
-        currentText = trimmed;
-      }
+      addLine('Giọng câu hỏi', intro.replace(/\n/g, ' '));
     }
   }
 
-  // Push the last one
-  if (currentSpeaker && currentText) {
-    dialogues.push({ speaker: currentSpeaker, text: currentText.trim() });
-    speakerSet.add(currentSpeaker);
+  // 2. Parse Dialogue (giữ logic như cũ)
+  if (dialogue.trim()) {
+    const lines = dialogue.split('\n');
+    let currentSpeaker = '';
+    let currentText = '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const match = trimmed.match(speakerRegex);
+      if (match) {
+        if (currentSpeaker && currentText) {
+          addLine(currentSpeaker, currentText);
+        }
+        currentSpeaker = match[1].trim();
+        currentText = match[2];
+      } else {
+        if (currentSpeaker === 'Người dẫn chuyện') {
+          currentText += ' ' + trimmed;
+        } else {
+          if (currentSpeaker && currentText) {
+            addLine(currentSpeaker, currentText);
+          }
+          currentSpeaker = 'Người dẫn chuyện';
+          currentText = trimmed;
+        }
+      }
+    }
+    if (currentSpeaker && currentText) {
+      addLine(currentSpeaker, currentText);
+    }
+  }
+
+  // 3. Parse Outro
+  if (outro.trim()) {
+    addLine('Giọng câu hỏi', outro.replace(/\n/g, ' '));
   }
 
   return {
@@ -62,18 +92,22 @@ function parseScriptText(text: string): { dialogues: DialogueLine[], speakers: s
 }
 
 const GenerateJapaneseVoicePage: React.FC = () => {
-  const [scriptText, setScriptText] = useState<string>('');
+  const [introText, setIntroText] = useState<string>('');
+  const [dialogueText, setDialogueText] = useState<string>('');
+  const [outroText, setOutroText] = useState<string>('');
+  
   const [speakerConfigs, setSpeakerConfigs] = useState<Record<string, SpeakerConfig>>({});
   const [isGenerating, setIsGenerating] = useState(false);
   const [pipelineStep, setPipelineStep] = useState<number>(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
-  // Pause Settings
+  // Options
   const [dialoguePause, setDialoguePause] = useState<number>(1.0);
   const [narratorPause, setNarratorPause] = useState<number>(5.0);
+  const [bellType, setBellType] = useState<string>('Bell_ban.mp3');
 
   // Derived state
-  const { dialogues, speakers } = useMemo(() => parseScriptText(scriptText), [scriptText]);
+  const { dialogues, speakers } = useMemo(() => parseScriptTextJLPT(introText, dialogueText, outroText), [introText, dialogueText, outroText]);
 
   const handleDownload = async () => {
     if (!audioUrl) return;
@@ -146,7 +180,8 @@ const GenerateJapaneseVoicePage: React.FC = () => {
         speaker_configs: finalConfigs,
         title: `Script_${new Date().getTime()}`,
         dialogue_pause: dialoguePause,
-        narrator_pause: narratorPause
+        narrator_pause: narratorPause,
+        bell_type: bellType
       });
 
       setPipelineStep(3); // Bước 3: Đồng bộ dữ liệu
@@ -204,7 +239,7 @@ const GenerateJapaneseVoicePage: React.FC = () => {
               </div>
             </div>
 
-            <div className="border-t border-blue-200/50 dark:border-blue-800/50 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="border-t border-blue-200/50 dark:border-blue-800/50 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <Label className="text-sm font-semibold text-blue-800 dark:text-blue-300">Nghỉ Lời dẫn (Narrator)</Label>
@@ -229,13 +264,46 @@ const GenerateJapaneseVoicePage: React.FC = () => {
                   className="[&_[role=slider]]:border-blue-500 [&_[role=slider]]:focus:ring-blue-500"
                 />
               </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <Label className="text-sm font-semibold text-blue-800 dark:text-blue-300">Loại chuông (JLPT Bell)</Label>
+                </div>
+                <select 
+                  className="w-full text-sm p-2 rounded-md border border-blue-200 dark:border-blue-800/50 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                  value={bellType}
+                  onChange={e => setBellType(e.target.value)}
+                >
+                  <option value="Bell_ban.mp3">Bell_ban.mp3</option>
+                  <option value="Bell_mondai.mp3">Bell_mondai.mp3</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <ScriptEditor
-            value={scriptText}
-            onChange={setScriptText}
-          />
+          <div className="flex flex-col gap-6">
+            <ScriptEditor
+              title="Câu hỏi đầu (Intro)"
+              placeholder="Ví dụ:\n一番: 男の人と女の人が話しています..."
+              value={introText}
+              onChange={setIntroText}
+              minHeight="min-h-[150px]"
+            />
+            
+            <ScriptEditor
+              title="Hội thoại (Dialogue)"
+              placeholder="Ví dụ:\n男: こんにちは。\n女: はい、こんにちは。"
+              value={dialogueText}
+              onChange={setDialogueText}
+            />
+            
+            <ScriptEditor
+              title="Câu hỏi xác nhận (Outro)"
+              placeholder="Ví dụ:\n男の人と女の人は何をしますか。"
+              value={outroText}
+              onChange={setOutroText}
+              minHeight="min-h-[100px]"
+            />
+          </div>
 
           <div className="pt-2">
             <div className="flex items-center gap-2 mb-4">

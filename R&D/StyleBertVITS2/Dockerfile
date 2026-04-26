@@ -42,7 +42,8 @@ RUN pip install --no-cache-dir \
     "fastapi" \
     "uvicorn" \
     "python-multipart" \
-    "httpx"
+    "httpx" \
+    "unidic-lite"
 
 # Install pyannote.audio separately to prevent pip dependency resolution deep loops
 RUN pip install --no-cache-dir "pyannote.audio" "torch==2.4.1" "torchaudio==2.4.1"
