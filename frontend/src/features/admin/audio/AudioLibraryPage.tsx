@@ -5,6 +5,19 @@ import { adminApi } from '../api/adminClient'
 import type { AdminAudio, AdminAudioListResponse } from './types/audio'
 
 const PAGE_SIZE = 8
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Đang chờ',
+  processing: 'Đang xử lý',
+  completed: 'Hoàn tất',
+  failed: 'Thất bại',
+}
+
+const STATUS_FILTER_OPTIONS = Object.entries(STATUS_LABELS)
+
+function getStatusLabel(status?: string | null) {
+  if (!status) return STATUS_LABELS.pending
+  return STATUS_LABELS[status] || status
+}
 
 function formatDuration(value?: number | null) {
   if (!value || value <= 0) return 'Chưa rõ'
@@ -50,9 +63,9 @@ function AudioCard({ audio }: { audio: AdminAudio }) {
           <p className="mt-2 text-xs text-muted-foreground">ID: {audio.audio_id}</p>
         </div>
         <span
-          className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${getStatusTone(audio.ai_status)}`}
+          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(audio.ai_status)}`}
         >
-          {audio.ai_status || 'pending'}
+          {getStatusLabel(audio.ai_status)}
         </span>
       </div>
 
@@ -220,10 +233,11 @@ export default function AudioLibraryPage() {
             className="h-11 rounded-2xl border border-border bg-background px-4 text-sm outline-none transition focus:border-emerald-400"
           >
             <option value="">Tất cả trạng thái</option>
-            <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
+            {STATUS_FILTER_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
