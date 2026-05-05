@@ -804,19 +804,6 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  Xoá câu hỏi
  </button>
  ))}
- {/* Save Question */}
- {isDirtyQ(activeQ.question_id) && canEdit && (
- <button
- onClick={() => handleSaveQ(activeQ)}
- disabled={savingQ === activeQ.question_id}
- className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-60 shadow-sm"
- >
- {savingQ === activeQ.question_id
- ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
- : <Save className="w-3.5 h-3.5" />}
- Lưu câu hỏi
- </button>
- )}
  </div>
  </div>
 
