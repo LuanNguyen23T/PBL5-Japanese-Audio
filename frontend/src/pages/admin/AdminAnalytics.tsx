@@ -15,6 +15,7 @@ import {
 import { AlertCircle, Calendar, RefreshCw, Info, ChevronDown } from 'lucide-react'
 import {
   AnalyticsOverviewResponse,
+  FeedbackListResponse,
   analyticsApi,
 } from '@/features/analytics/api/analyticsApi'
 import { Card } from '@/components/ui/Card'
@@ -22,11 +23,16 @@ import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8']
+type FeedbackType = 'ai' | 'system'
 
 export default function AdminAnalytics() {
   const [data, setData] = useState<AnalyticsOverviewResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeFeedbackType, setActiveFeedbackType] = useState<FeedbackType | null>(null)
+  const [feedbackData, setFeedbackData] = useState<FeedbackListResponse | null>(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
   
   const popupRef = useRef<HTMLDivElement>(null)
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
@@ -90,6 +96,19 @@ export default function AdminAnalytics() {
     return `${d}/${m}/${y}`;
   }
 
+  const getDateRangeParams = () => {
+    const startDate = new Date(customStartDate)
+    startDate.setHours(0, 0, 0, 0)
+
+    const endDate = new Date(customEndDate)
+    endDate.setHours(23, 59, 59, 999)
+
+    return {
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+    }
+  }
+
   const loadData = async () => {
     try {
       if (!customStartDate || !customEndDate) return
@@ -100,18 +119,10 @@ export default function AdminAnalytics() {
 
       setLoading(true)
       setError(null)
-      
-      const startDate = new Date(customStartDate)
-      startDate.setHours(0, 0, 0, 0)
-      const startDateStr = startDate.toISOString()
-
-      const endDate = new Date(customEndDate)
-      endDate.setHours(23, 59, 59, 999)
-      const endDateStr = endDate.toISOString()
+      const dateRange = getDateRangeParams()
 
       const res = await analyticsApi.getOverview({
-        start_date: startDateStr,
-        end_date: endDateStr,
+        ...dateRange,
         level: level || undefined,
       })
       setData(res)
@@ -119,6 +130,25 @@ export default function AdminAnalytics() {
       setError(err.message || 'Không thể tải dữ liệu thống kê, vui lòng thử lại sau')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadFeedbackDescriptions = async (type: FeedbackType) => {
+    try {
+      if (!customStartDate || !customEndDate) return
+      setActiveFeedbackType(type)
+      setFeedbackLoading(true)
+      setFeedbackError(null)
+
+      const res = await analyticsApi.getFeedbacks({
+        ...getDateRangeParams(),
+        type_filter: type,
+      })
+      setFeedbackData(res)
+    } catch (err: any) {
+      setFeedbackError(err.message || 'Không thể tải danh sách mô tả đánh giá')
+    } finally {
+      setFeedbackLoading(false)
     }
   }
 
@@ -166,7 +196,7 @@ export default function AdminAnalytics() {
           <div className="relative" ref={popupRef}>
             <button
               onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-input hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm font-medium"
+              className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
               <Calendar className="w-4 h-4 text-muted-foreground" />
               <span>{formatDateForDisplay(customStartDate)}</span>
@@ -176,7 +206,7 @@ export default function AdminAnalytics() {
             </button>
 
             {isDatePickerOpen && (
-              <div className="absolute top-full right-0 sm:left-0 mt-2 p-4 bg-card rounded-xl border border-border shadow-xl z-50 w-[340px] flex flex-col gap-4 animate-in slide-in-from-top-2 origin-top">
+              <div className="absolute top-full right-0 sm:left-0 mt-2 p-4 bg-popover text-popover-foreground rounded-xl border border-border shadow-xl z-50 w-[340px] flex flex-col gap-4 animate-in slide-in-from-top-2 origin-top">
                 <div>
                   <p className="text-sm font-semibold mb-3">Thời gian nhanh</p>
                   <div className="grid grid-cols-3 gap-2">
@@ -198,7 +228,7 @@ export default function AdminAnalytics() {
                         max={tempEndDate || new Date().toISOString().split('T')[0]}
                         value={tempStartDate} 
                         onChange={e => setTempStartDate(e.target.value)}
-                        className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-50 dark:bg-slate-800 border border-input focus:ring-1 focus:ring-primary outline-none"
+                        className="flex-1 rounded border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none [color-scheme:light] focus:ring-1 focus:ring-primary dark:[color-scheme:dark]"
                       />
                     </div>
                     <div className="flex items-center gap-3">
@@ -209,7 +239,7 @@ export default function AdminAnalytics() {
                         max={new Date().toISOString().split('T')[0]}
                         value={tempEndDate} 
                         onChange={e => setTempEndDate(e.target.value)}
-                        className="flex-1 px-3 py-1.5 text-sm rounded bg-slate-50 dark:bg-slate-800 border border-input focus:ring-1 focus:ring-primary outline-none"
+                        className="flex-1 rounded border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none [color-scheme:light] focus:ring-1 focus:ring-primary dark:[color-scheme:dark]"
                       />
                     </div>
                   </div>
@@ -227,14 +257,14 @@ export default function AdminAnalytics() {
           <select
             value={level}
             onChange={(e) => setLevel(e.target.value)}
-            className="bg-transparent text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer pl-2"
+            className="cursor-pointer rounded-lg border border-transparent bg-background px-3 py-2 text-sm font-medium text-foreground outline-none [color-scheme:light] transition focus:border-input dark:[color-scheme:dark]"
           >
-            <option value="">Tất cả cấp độ</option>
-            <option value="N1">JLPT N1</option>
-            <option value="N2">JLPT N2</option>
-            <option value="N3">JLPT N3</option>
-            <option value="N4">JLPT N4</option>
-            <option value="N5">JLPT N5</option>
+            <option className="bg-popover text-popover-foreground" value="">Tất cả cấp độ</option>
+            <option className="bg-popover text-popover-foreground" value="N1">JLPT N1</option>
+            <option className="bg-popover text-popover-foreground" value="N2">JLPT N2</option>
+            <option className="bg-popover text-popover-foreground" value="N3">JLPT N3</option>
+            <option className="bg-popover text-popover-foreground" value="N4">JLPT N4</option>
+            <option className="bg-popover text-popover-foreground" value="N5">JLPT N5</option>
           </select>
           <Button variant="ghost" size="sm" onClick={loadData} title="Làm mới">
             <RefreshCw className="w-4 h-4" />
@@ -245,7 +275,7 @@ export default function AdminAnalytics() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* KPI Cards */}
         <Card className="p-6 flex flex-col justify-center">
-          <p className="text-sm font-medium text-muted-foreground">Tổng số Đề thi</p>
+          <p className="text-sm font-medium text-muted-foreground">Đề thi đang hoạt động</p>
           <h3 className="text-4xl font-bold text-primary mt-2">{data.exam_stats.total}</h3>
         </Card>
         
@@ -333,7 +363,13 @@ export default function AdminAnalytics() {
           <div className="flex justify-between items-start mb-6">
             <div className="flex flex-col h-12">
               <h3 className="text-lg font-semibold">Đánh giá hệ thống AI</h3>
-              <span className="text-sm text-muted-foreground mt-1 invisible">Placeholder</span>
+              <button
+                type="button"
+                onClick={() => loadFeedbackDescriptions('ai')}
+                className="mt-1 text-left text-sm font-medium text-primary transition hover:text-primary/80"
+              >
+                Xem mô tả đánh giá
+              </button>
             </div>
             <span className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full whitespace-nowrap">
               Trung bình: {data.ai_quality_stats.average_rating} ⭐
@@ -366,7 +402,13 @@ export default function AdminAnalytics() {
           <div className="flex justify-between items-start mb-6">
             <div className="flex flex-col h-12">
               <h3 className="text-lg font-semibold">Đánh giá chung (Trải nghiệm)</h3>
-              <span className="text-sm text-muted-foreground mt-1">Tổng số: {data.system_quality_stats.total_feedbacks} lượt</span>
+              <button
+                type="button"
+                onClick={() => loadFeedbackDescriptions('system')}
+                className="mt-1 text-left text-sm font-medium text-primary transition hover:text-primary/80"
+              >
+                Xem mô tả đánh giá ({data.system_quality_stats.total_feedbacks})
+              </button>
             </div>
             <span className="text-sm font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200 px-3 py-1 rounded-full whitespace-nowrap">
               Trung bình: {data.system_quality_stats.average_rating} ⭐
@@ -394,6 +436,60 @@ export default function AdminAnalytics() {
           </div>
         </Card>
       </div>
+
+      {activeFeedbackType && (
+        <Card className="p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">
+                Mô tả đánh giá {activeFeedbackType === 'ai' ? 'AI' : 'chung'}
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {formatDateForDisplay(customStartDate)} - {formatDateForDisplay(customEndDate)}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => loadFeedbackDescriptions(activeFeedbackType)}>
+              <RefreshCw className="w-4 h-4" />
+              Làm mới
+            </Button>
+          </div>
+
+          {feedbackError && (
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {feedbackError}
+            </div>
+          )}
+
+          {feedbackLoading ? (
+            <div className="mt-6 flex items-center gap-3 text-sm text-muted-foreground">
+              <Spinner size="sm" />
+              Đang tải mô tả đánh giá...
+            </div>
+          ) : feedbackData?.items.length ? (
+            <div className="mt-5 space-y-3">
+              {feedbackData.items.map((item) => (
+                <article key={item.id} className="rounded-lg border border-border bg-background px-4 py-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-semibold text-foreground">
+                      {item.user_name || `User #${item.user_id}`}
+                    </p>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {item.rating_score} sao · {new Date(item.created_at).toLocaleString('vi-VN')}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-foreground">
+                    {item.comment_text?.trim() || 'Người dùng chưa nhập mô tả cho đánh giá này.'}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-5 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+              Chưa có mô tả đánh giá nào trong khoảng thời gian này.
+            </p>
+          )}
+        </Card>
+      )}
     </div>
   )
 }

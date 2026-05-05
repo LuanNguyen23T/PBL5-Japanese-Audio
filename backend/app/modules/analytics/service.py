@@ -52,19 +52,21 @@ class AnalyticsService:
         date_counts = {}
         
         filtered_exams = []
+        active_exams = []
         for exam in exams:
             lvl = self._extract_jlpt_level(exam.title, exam.description)
             if level_filter and lvl != level_filter:
                 continue
             filtered_exams.append(exam)
-            level_counts[lvl] += 1
             if exam.is_published:
+                active_exams.append(exam)
+                level_counts[lvl] += 1
                 status_counts["Đang hoạt động"] += 1
+
+                date_str = exam.created_at.strftime("%Y-%m-%d")
+                date_counts[date_str] = date_counts.get(date_str, 0) + 1
             else:
                 status_counts["Ngừng hoạt động"] += 1
-                
-            date_str = exam.created_at.strftime("%Y-%m-%d")
-            date_counts[date_str] = date_counts.get(date_str, 0) + 1
             
         # 2. Interaction Stats (UserResults)
         # Using cast to DATE is specific to dialect, we can just fetch and process in python for small sets or use func.date
@@ -173,7 +175,7 @@ class AnalyticsService:
 
         return AnalyticsOverviewResponse(
             exam_stats=ExamStats(
-                total=len(filtered_exams),
+                total=len(active_exams),
                 by_level=[ChartDataPoint(name=k, value=v) for k, v in level_counts.items() if v > 0],
                 by_status=[ChartDataPoint(name=k, value=v) for k, v in status_counts.items() if v > 0],
                 created_over_time=exam_over_time_list
