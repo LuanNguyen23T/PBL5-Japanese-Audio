@@ -1118,7 +1118,14 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
  URL tải file nghe
  </p>
- <p className="mt-3 break-all font-mono text-xs leading-6 text-slate-100">{listeningFile.url}</p>
+ <a
+ href={listeningFile.url}
+ target="_blank"
+ rel="noreferrer"
+ className="mt-3 block break-all font-mono text-xs leading-6 text-foreground underline decoration-muted-foreground underline-offset-4 transition hover:text-primary"
+ >
+ {listeningFile.url}
+ </a>
  </div>
 
  <div className="mt-4 flex flex-wrap gap-3">
@@ -1148,14 +1155,20 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
 
  <div className="rounded-[24px] border border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-5 text-center">
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Scan To Listen</p>
- <div className="mt-4 overflow-hidden rounded-3xl border border-white bg-white p-3 shadow-sm">
+ <a
+ href={listeningFile.url}
+ target="_blank"
+ rel="noreferrer"
+ className="mt-4 block overflow-hidden rounded-3xl border border-white bg-white p-3 shadow-sm transition hover:border-emerald-300 hover:shadow-md"
+ title="Mở file nghe"
+ >
  <img
  src={listeningFile.qrCodeUrl}
  alt="Mã QR mở file nghe"
  className="mx-auto aspect-square w-full max-w-[280px] object-contain"
  />
- </div>
- <p className="mt-4 text-sm font-semibold text-foreground">Quét QR để mở file nghe</p>
+ </a>
+ <p className="mt-4 text-sm font-semibold text-foreground">Quét hoặc click QR để mở file nghe</p>
  <p className="mt-2 text-xs leading-5 text-muted-foreground">
  Nếu máy không tải trực tiếp, hãy mở URL rồi dùng chức năng tải xuống của trình phát.
  </p>

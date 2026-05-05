@@ -366,9 +366,14 @@ export default function ExamPrintPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">
                     URL tải file nghe
                   </p>
-                  <p className="mt-3 break-all font-mono text-xs leading-6 text-stone-100">
+                  <a
+                    href={listeningFile.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 block break-all font-mono text-xs leading-6 text-stone-100 underline decoration-stone-500 underline-offset-4 transition hover:text-emerald-200"
+                  >
                     {listeningFile.url}
-                  </p>
+                  </a>
                 </div>
 
                 <div className="print-hidden mt-4 flex flex-wrap gap-3">
@@ -389,15 +394,21 @@ export default function ExamPrintPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">
                   Scan To Listen
                 </p>
-                <div className="mt-4 overflow-hidden rounded-3xl border border-emerald-100 bg-white p-3">
+                <a
+                  href={listeningFile.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-4 block overflow-hidden rounded-3xl border border-emerald-100 bg-white p-3 transition hover:border-emerald-300 hover:shadow-md print:pointer-events-auto"
+                  title="Mở file nghe"
+                >
                   <img
                     src={listeningFile.qrCodeUrl}
                     alt="Mã QR mở file nghe"
                     className="mx-auto aspect-square w-full max-w-[220px] object-contain"
                   />
-                </div>
+                </a>
                 <p className="mt-4 text-sm font-semibold text-stone-900">
-                  Quét mã QR để mở file nghe
+                  Quét hoặc click QR để mở file nghe
                 </p>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
                   Nếu trình duyệt không tải trực tiếp, hãy mở URL và dùng chức năng tải xuống của
