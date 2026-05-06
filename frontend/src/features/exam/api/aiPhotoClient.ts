@@ -26,10 +26,35 @@ export interface AIPhotoGenerateResponse {
   storage_path?: string | null
 }
 
+export interface AIPhotoJobStartResponse {
+  job_id: string
+  status: 'pending' | 'processing' | 'done' | 'failed'
+  progress_message: string
+}
+
+export interface AIPhotoJobStatusResponse extends AIPhotoJobStartResponse {
+  result?: AIPhotoGenerateResponse | null
+  error?: string | null
+}
+
 export const aiPhotoClient = {
   generate: (data: AIPhotoGeneratePayload) =>
     apiFetch(`${API_BASE}/api/ai_photos/generate`, {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => handleResponse<AIPhotoGenerateResponse>(r)),
+
+  generateAsync: (data: AIPhotoGeneratePayload) =>
+    apiFetch(`${API_BASE}/api/ai_photos/generate-async`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => handleResponse<AIPhotoJobStartResponse>(r)),
+
+  getJobStatus: (jobId: string) =>
+    apiFetch(`${API_BASE}/api/ai_photos/job/${jobId}`).then((r) =>
+      handleResponse<AIPhotoJobStatusResponse>(r)
+    ),
+
+  deleteJob: (jobId: string) =>
+    apiFetch(`${API_BASE}/api/ai_photos/job/${jobId}`, { method: 'DELETE' }),
 }

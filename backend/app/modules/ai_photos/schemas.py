@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from enum import Enum
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 
 class PhotoType(str, Enum):
@@ -36,3 +36,17 @@ class AIPhotoResponse(BaseModel):
     storage_path: Optional[str] = Field(
         None, description="Local file path where the generated image is stored"
     )
+
+
+class AIPhotoJobStartResponse(BaseModel):
+    job_id: str
+    status: Literal["pending", "processing", "done", "failed"]
+    progress_message: str = ""
+
+
+class AIPhotoJobStatusResponse(BaseModel):
+    job_id: str
+    status: Literal["pending", "processing", "done", "failed"]
+    progress_message: str = ""
+    result: Optional[AIPhotoResponse] = None
+    error: Optional[str] = None
