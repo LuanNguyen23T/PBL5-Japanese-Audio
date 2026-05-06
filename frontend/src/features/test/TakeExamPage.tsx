@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
  ArrowLeft,
  CheckCircle2,
@@ -11,9 +11,11 @@ import {
  PlayCircle,
  Send,
  Sparkles,
+ XCircle,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/Button'
+import { Toaster } from '@/components/ui/toaster'
 import { toast } from '@/hooks/use-toast'
 import { TestAudioPlayer } from './components/TestAudioPlayer'
 import { testClient } from './api/testClient'
@@ -215,6 +217,7 @@ export function TakeExamContent({
  const activeGroupStart = activeGroupQuestions[0]?.question_number ?? 1
  const activeGroupEnd =
  activeGroupQuestions[activeGroupQuestions.length - 1]?.question_number ?? activeGroupQuestions.length ?? 1
+ const examInProgress = !!exam && startPhase === 'active' && !result && !submitting
 
  useEffect(() => {
  return () => {
@@ -223,6 +226,18 @@ export function TakeExamContent({
  simulationAudioRef.current?.pause()
  }
  }, [])
+
+ useEffect(() => {
+ if (!examInProgress) return
+
+ const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+ event.preventDefault()
+ event.returnValue = ''
+ }
+
+ window.addEventListener('beforeunload', handleBeforeUnload)
+ return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+ }, [examInProgress])
 
  const moveQuestion = (step: number) => {
  if (!exam || activeIndex < 0) return
@@ -325,6 +340,28 @@ export function TakeExamContent({
  }
  }
 
+ const handleLeaveExam = () => {
+ if (examInProgress) {
+ const confirmed = window.confirm('Bạn đang làm bài. Nếu dừng bây giờ, câu trả lời hiện tại sẽ không được nộp. Bạn vẫn muốn dừng?')
+ if (!confirmed) return
+ }
+
+ document.querySelectorAll('audio').forEach((el) => {
+ el.pause()
+ })
+
+ if (onClose) {
+ onClose()
+ return
+ }
+
+ if (window.opener) {
+ window.close()
+ }
+
+ navigate(returnPath || `/test/exams/${examId}`)
+ }
+
  if (loading) {
  return (
  <div className="flex min-h-[60vh] items-center justify-center">
@@ -351,14 +388,12 @@ export function TakeExamContent({
  <div className="grid items-center gap-4 lg:grid-cols-[1fr_auto_1fr]">
  <div className="flex min-w-0 items-center gap-4">
  {onClose ? (
- <Button variant="ghost" size="icon" className="rounded-full" onClick={onClose}>
+ <Button variant="ghost" size="icon" className="rounded-full" onClick={handleLeaveExam}>
  <ArrowLeft className="h-5 w-5" />
  </Button>
  ) : (
- <Button asChild variant="ghost" size="icon" className="rounded-full">
- <Link to={`/test/exams/${exam.exam_id}`}>
+ <Button variant="ghost" size="icon" className="rounded-full" onClick={handleLeaveExam}>
  <ArrowLeft className="h-5 w-5" />
- </Link>
  </Button>
  )}
  <div className="min-w-0">
@@ -378,7 +413,17 @@ export function TakeExamContent({
  </div>
  </div>
 
- <div className="justify-self-start lg:justify-self-end">
+ <div className="flex flex-wrap items-center gap-3 justify-self-start lg:justify-self-end">
+ <Button
+ variant="outline"
+ size="lg"
+ onClick={handleLeaveExam}
+ disabled={submitting || !!result}
+ className="rounded-full border-red-200 px-5 py-4 text-xs font-bold uppercase tracking-wide text-red-600 hover:bg-red-50 hover:text-red-700"
+ >
+ <XCircle className="h-4 w-4" />
+ Dừng
+ </Button>
  <Button
  size="lg"
  onClick={() => void handleSubmit(false)}
@@ -732,5 +777,10 @@ export default function TakeExamPage() {
  || (location.state as { audioMode?: 'practice' | 'simulation' } | null)?.audioMode
  || undefined
 
- return <TakeExamContent examId={examId} initialAudioMode={initialAudioMode} standalone />
+ return (
+ <div className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+ <TakeExamContent examId={examId} initialAudioMode={initialAudioMode} standalone />
+ <Toaster />
+ </div>
+ )
 }

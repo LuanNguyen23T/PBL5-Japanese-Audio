@@ -37,6 +37,7 @@ export interface ExamPayload {
 
 export interface ExamResponse {
   exam_id: string
+  creator_id?: string
   title: string
   description?: string
   audio_mode?: 'practice' | 'simulation'

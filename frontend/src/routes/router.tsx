@@ -128,10 +128,6 @@ const routes = {
       element: <TestExamDetailPage />,
     },
     {
-      path: 'test/exams/:examId/take',
-      element: <TakeExamPage />,
-    },
-    {
       path: 'test/results/:resultId/review',
       element: <TestResultReviewPage />,
     },
@@ -180,6 +176,11 @@ export const router = createBrowserRouter([
   {
     path: '/exam/:examId/pdf',
     element: withProtection(<ExamPrintPage />),
+    errorElement: <ErrorBoundary />,
+  },
+  {
+    path: '/test/exams/:examId/take',
+    element: withProtection(<TakeExamPage />),
     errorElement: <ErrorBoundary />,
   },
   {

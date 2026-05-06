@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { BookOpen, Clock, Layers, FileText, CheckCircle2, Search, Filter, Calendar } from 'lucide-react'
 import { examClient, ExamResponse } from '../exam/api/examClient'
 import ExamDetailModal from '../exam/ExamDetailModal'
@@ -70,7 +69,6 @@ function ExamCard({ exam, onClick }: ExamCardProps) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function QuestionBankPage() {
-  const navigate = useNavigate()
   const [exams, setExams] = useState<ExamResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -270,4 +268,3 @@ export default function QuestionBankPage() {
     </div>
   )
 }
-
