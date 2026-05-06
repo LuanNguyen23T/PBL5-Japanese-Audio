@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
  X, Headphones, Clock, Layers, Loader2,
  Trash2, Save, Brain, AlertCircle,
@@ -224,7 +223,6 @@ function InlineAudioTrimmer({
 
 export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUpdated }: Props) {
  const { user } = useAuthState()
- const navigate = useNavigate()
 
  const canEdit = user?.role === 'admin' || user?.id === exam.creator_id
  const imageInputRef = useRef<HTMLInputElement>(null)
@@ -250,6 +248,13 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
 
  const handleOpenPdfExport = () => {
  window.open(`/exam/${exam.exam_id}/pdf?autoprint=1`, '_blank', 'noopener,noreferrer')
+ }
+
+ const handleOpenTakeExam = () => {
+ const takeUrl = `/test/exams/${exam.exam_id}/take`
+ const examWindow = window.open(takeUrl, '_blank', 'noopener,noreferrer')
+ if (!examWindow) window.location.assign(takeUrl)
+ onClose()
  }
 
  useEffect(() => {
@@ -608,10 +613,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  Tải PDF
  </button>
  <button
- onClick={() => {
- onClose()
- navigate(`/test/exams/${exam.exam_id}`)
- }}
+ onClick={handleOpenTakeExam}
  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
  >
  <ExternalLink className="w-3.5 h-3.5" />
