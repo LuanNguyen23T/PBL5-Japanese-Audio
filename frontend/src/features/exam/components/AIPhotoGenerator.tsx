@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Loader2, Sparkles } from 'lucide-react'
 
 import { toast } from '@/hooks/use-toast'
@@ -41,9 +41,53 @@ export default function AIPhotoGenerator({
   const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSelecting, setIsSelecting] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [progressMessage, setProgressMessage] = useState('')
 
   const normalizedAnswers = normalizeAnswers(answers)
   const hasFourAnswers = normalizedAnswers.length >= 4
+
+  useEffect(() => {
+    if (!jobId) return
+
+    let stopped = false
+    const poll = async () => {
+      try {
+        const status = await aiPhotoClient.getJobStatus(jobId)
+        if (stopped) return
+
+        setProgressMessage(status.progress_message || 'Đang sinh ảnh AI...')
+
+        if (status.status === 'done' && status.result) {
+          setGeneratedImageUrl(status.result.b64_image)
+          setGeneratedPrompt(status.result.info ?? null)
+          setIsGenerating(false)
+          setJobId(null)
+          void aiPhotoClient.deleteJob(jobId).catch(() => {})
+        } else if (status.status === 'failed') {
+          setIsGenerating(false)
+          setJobId(null)
+          toast({
+            title: 'Sinh ảnh thất bại',
+            description: status.error || 'Không thể kết nối Draw Things.',
+            variant: 'destructive',
+          })
+          void aiPhotoClient.deleteJob(jobId).catch(() => {})
+        }
+      } catch {
+        if (!stopped) {
+          setProgressMessage('Đang chờ phản hồi từ job sinh ảnh...')
+        }
+      }
+    }
+
+    poll()
+    const interval = window.setInterval(poll, 2500)
+    return () => {
+      stopped = true
+      window.clearInterval(interval)
+    }
+  }, [jobId])
 
   const handleGenerate = async () => {
     const userPrompt = detailPrompt.trim()
@@ -68,25 +112,26 @@ export default function AIPhotoGenerator({
 
     setIsGenerating(true)
     setGeneratedImageUrl(null)
+    setGeneratedPrompt(null)
+    setProgressMessage('Đang gửi job sinh ảnh AI...')
 
     try {
-      const result = await aiPhotoClient.generate({
+      const job = await aiPhotoClient.generateAsync({
         photo_type: photoType,
         description: userPrompt,
         question_text: questionText?.trim() || null,
         script: scriptText?.trim() || null,
         answers: photoType === 'action' ? normalizedAnswers.slice(0, 4) : normalizedAnswers,
       })
-      setGeneratedImageUrl(result.b64_image)
-      setGeneratedPrompt(result.info ?? null)
+      setJobId(job.job_id)
+      setProgressMessage(job.progress_message || 'Job sinh ảnh đã bắt đầu...')
     } catch (error: any) {
+      setIsGenerating(false)
       toast({
         title: 'Sinh ảnh thất bại',
         description: error.message || 'Không thể kết nối Draw Things.',
         variant: 'destructive',
       })
-    } finally {
-      setIsGenerating(false)
     }
   }
 
@@ -98,6 +143,8 @@ export default function AIPhotoGenerator({
       onSelectImage(file, URL.createObjectURL(file))
       toast({ title: 'Đã chọn ảnh AI' })
       setGeneratedImageUrl(null)
+      setGeneratedPrompt(null)
+      setProgressMessage('')
       setExpanded(false)
     } catch (error: any) {
       toast({ title: 'Lỗi', description: error.message, variant: 'destructive' })
@@ -188,6 +235,11 @@ export default function AIPhotoGenerator({
                 )}
               </button>
             </div>
+            {isGenerating && (
+              <p className="text-[11px] text-blue-700 dark:text-blue-300">
+                {progressMessage || 'Đang chạy nền...'}
+              </p>
+            )}
             {generatedImageUrl && !isGenerating && (
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400">✓ Ảnh đã sẵn sàng</p>
             )}
@@ -220,7 +272,7 @@ export default function AIPhotoGenerator({
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setGeneratedImageUrl(null); setGeneratedPrompt(null) }}
+                  onClick={() => { setGeneratedImageUrl(null); setGeneratedPrompt(null); setProgressMessage('') }}
                   className="rounded-xl border border-border bg-card px-4 py-2 text-xs font-bold text-muted-foreground transition-colors hover:bg-muted"
                 >
                   Thử lại
