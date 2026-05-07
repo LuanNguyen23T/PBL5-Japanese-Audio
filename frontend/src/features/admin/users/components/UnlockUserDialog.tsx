@@ -1,19 +1,26 @@
 import { X, Unlock } from 'lucide-react';
+import { useState } from 'react';
 import type { User } from '../types/user';
 
 interface UnlockUserDialogProps {
  isOpen: boolean;
  user: User | null;
  onClose: () => void;
- onConfirm: (user: User) => void;
+ onConfirm: (user: User) => Promise<void>;
 }
 
 export function UnlockUserDialog({ isOpen, user, onClose, onConfirm }: UnlockUserDialogProps) {
+ const [submitting, setSubmitting] = useState(false);
+
  if (!isOpen || !user) return null;
 
- const handleConfirm = () => {
- onConfirm(user);
- onClose();
+ const handleConfirm = async () => {
+ setSubmitting(true);
+ try {
+ await onConfirm(user);
+ } finally {
+ setSubmitting(false);
+ }
  };
 
  return (
@@ -48,9 +55,10 @@ export function UnlockUserDialog({ isOpen, user, onClose, onConfirm }: UnlockUse
  </button>
  <button
  onClick={handleConfirm}
+ disabled={submitting}
  className="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors cursor-pointer"
  >
- Xác nhận mở khoá
+ {submitting ? 'Đang mở...' : 'Xác nhận mở khoá'}
  </button>
  </div>
  </div>

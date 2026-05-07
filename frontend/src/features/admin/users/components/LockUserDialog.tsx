@@ -6,19 +6,24 @@ interface LockUserDialogProps {
  isOpen: boolean;
  user: User | null;
  onClose: () => void;
- onConfirm: (userId: number, durationHours: number, reason: string, detailedReason?: string) => void;
+ onConfirm: (userId: number, durationHours: number, reason: string, detailedReason?: string) => Promise<void>;
 }
 
 export function LockUserDialog({ isOpen, user, onClose, onConfirm }: LockUserDialogProps) {
  const [duration, setDuration] = useState<number>(24);
  const [reason, setReason] = useState<string>("Vi phạm chính sách bảo mật / Hoạt động bất thường");
  const [detailedReason, setDetailedReason] = useState<string>("");
+ const [submitting, setSubmitting] = useState(false);
 
  if (!isOpen || !user) return null;
 
- const handleConfirm = () => {
- onConfirm(user.id, duration, reason, detailedReason);
- onClose();
+ const handleConfirm = async () => {
+ setSubmitting(true);
+ try {
+ await onConfirm(user.id, duration, reason, detailedReason);
+ } finally {
+ setSubmitting(false);
+ }
  };
 
  return (
@@ -100,9 +105,10 @@ export function LockUserDialog({ isOpen, user, onClose, onConfirm }: LockUserDia
  </button>
  <button
  onClick={handleConfirm}
+ disabled={submitting}
  className="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors cursor-pointer"
  >
- Khoá tài khoản
+ {submitting ? 'Đang khoá...' : 'Khoá tài khoản'}
  </button>
  </div>
  </div>

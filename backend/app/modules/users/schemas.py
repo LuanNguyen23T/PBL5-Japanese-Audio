@@ -63,7 +63,7 @@ class UserCreateByAdmin(BaseModel):
     email: EmailStr = Field(..., description="New user email")
     username: str = Field(..., min_length=3, max_length=50, description="Username")
     role: str = Field("user", pattern="^(admin|user)$", description="Role")
-    password: Optional[str] = Field(None, min_length=8, description="Password (leave empty to auto-generate)")
+    password: str = Field(..., min_length=8, description="Password")
     first_name: Optional[str] = Field(None, description="First name")
     last_name: Optional[str] = Field(None, description="Last name")
     avatar_url: Optional[str] = Field(None, description="Avatar URL")

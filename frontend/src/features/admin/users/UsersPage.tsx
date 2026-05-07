@@ -8,7 +8,7 @@ import { EditUserModal } from './components/EditUserModal';
 import { LockUserDialog } from './components/LockUserDialog';
 import { UnlockUserDialog } from './components/UnlockUserDialog';
 import { ResetPasswordDialog } from './components/ResetPasswordDialog';
-import { Toast } from '../../../components/Toast';
+import { useToast } from '@/hooks/use-toast';
 import { useUsers } from './hooks/useUsers';
 import { adminApi } from '../api/adminClient';
 import type { User } from './types/user';
@@ -29,9 +29,7 @@ export function UsersPage() {
  const [showResetDialog, setShowResetDialog] = useState(false);
  const [selectedUser, setSelectedUser] = useState<User | null>(null);
  const [tempPassword, setTempPassword] = useState<string | null>(null);
-
- // Toast
- const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+ const { toast } = useToast();
 
  // Fetch users
  const { data, loading, error, refetch } = useUsers({
@@ -47,10 +45,14 @@ export function UsersPage() {
  try {
  await adminApi.createUser(userData);
  setShowCreateModal(false);
- setToast({ message: 'User created successfully', type: 'success' });
+ toast({ title: 'Thành công', description: 'Đã tạo tài khoản người dùng.' });
  refetch();
  } catch (err) {
- setToast({ message: err instanceof Error ? err.message : 'Failed to create user', type: 'error' });
+ toast({
+ title: 'Không thể tạo tài khoản',
+ description: err instanceof Error ? err.message : 'Vui lòng kiểm tra lại thông tin.',
+ variant: 'destructive',
+ });
  }
  };
 
@@ -59,30 +61,46 @@ export function UsersPage() {
  await adminApi.updateUser(userId, userData);
  setShowEditModal(false);
  setSelectedUser(null);
- setToast({ message: 'User updated successfully', type: 'success' });
+ toast({ title: 'Thành công', description: 'Đã cập nhật người dùng.' });
  refetch();
  } catch (err) {
- setToast({ message: err instanceof Error ? err.message : 'Failed to update user', type: 'error' });
+ toast({
+ title: 'Không thể cập nhật người dùng',
+ description: err instanceof Error ? err.message : 'Vui lòng thử lại.',
+ variant: 'destructive',
+ });
  }
  };
 
  const handleLockUser = async (userId: number, durationHours: number, reason: string, detailedReason?: string) => {
   try {
   await adminApi.lockUser(userId, durationHours, reason, detailedReason);
-  setToast({ message: 'User account locked', type: 'success' });
+  setShowLockDialog(false);
+  setSelectedUser(null);
+  toast({ title: 'Thành công', description: 'Đã khoá tài khoản người dùng.' });
   refetch();
   } catch (err) {
-  setToast({ message: err instanceof Error ? err.message : 'Failed to lock user', type: 'error' });
+  toast({
+  title: 'Không thể khoá tài khoản',
+  description: err instanceof Error ? err.message : 'Vui lòng thử lại.',
+  variant: 'destructive',
+  });
   }
   };
 
  const handleUnlockUser = async (user: User) => {
  try {
  await adminApi.unlockUser(user.id);
- setToast({ message: 'User account unlocked', type: 'success' });
+ setShowUnlockDialog(false);
+ setSelectedUser(null);
+ toast({ title: 'Thành công', description: 'Đã mở khoá tài khoản người dùng.' });
  refetch();
  } catch (err) {
- setToast({ message: err instanceof Error ? err.message : 'Failed to unlock user', type: 'error' });
+ toast({
+ title: 'Không thể mở khoá tài khoản',
+ description: err instanceof Error ? err.message : 'Vui lòng thử lại.',
+ variant: 'destructive',
+ });
  }
  };
 
@@ -92,9 +110,13 @@ export function UsersPage() {
  setTempPassword(response.temporary_password);
  setSelectedUser(user);
  setShowResetDialog(true);
- setToast({ message: 'Password reset successfully', type: 'success' });
+ toast({ title: 'Thành công', description: 'Đã đặt lại mật khẩu người dùng.' });
  } catch (err) {
- setToast({ message: err instanceof Error ? err.message : 'Failed to reset password', type: 'error' });
+ toast({
+ title: 'Không thể đặt lại mật khẩu',
+ description: err instanceof Error ? err.message : 'Vui lòng thử lại.',
+ variant: 'destructive',
+ });
  }
  };
 
@@ -195,14 +217,6 @@ export function UsersPage() {
  onClose={() => { setShowResetDialog(false); setTempPassword(null); setSelectedUser(null); }}
  />
 
- {/* Toast */}
- {toast && (
- <Toast
- message={toast.message}
- type={toast.type}
- onClose={() => setToast(null)}
- />
- )}
  </div>
  );
 }
