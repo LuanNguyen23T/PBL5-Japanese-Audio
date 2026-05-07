@@ -11,14 +11,27 @@ import type {
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 interface ApiError {
-  detail: string
+  detail: unknown
+}
+
+function formatApiError(error: ApiError): string {
+  if (typeof error.detail === 'string') return error.detail
+  if (Array.isArray(error.detail)) {
+    return error.detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) return String(item.msg)
+        return String(item)
+      })
+      .join(', ')
+  }
+  return 'API request failed'
 }
 
 class AdminApiClient {
   private async handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const error: ApiError = await response.json()
-      throw new Error(error.detail || 'API request failed')
+      throw new Error(formatApiError(error))
     }
     return response.json()
   }
@@ -84,7 +97,7 @@ class AdminApiClient {
     email: string
     username: string
     role: string
-    password?: string
+    password: string
     first_name?: string
     last_name?: string
     avatar_url?: string

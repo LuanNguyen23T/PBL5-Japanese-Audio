@@ -9,7 +9,7 @@ interface CreateUserModalProps {
  email: string;
  username: string;
  role: string;
- password?: string;
+ password: string;
  first_name?: string;
  last_name?: string;
  avatar_url?: string;
@@ -52,7 +52,7 @@ export function CreateUserModal({ isOpen, onClose, onSubmit }: CreateUserModalPr
  }
  onSubmit({
  ...formData,
- password: formData.password || undefined,
+ password: formData.password,
  avatar_url,
  });
  // Reset
@@ -172,14 +172,16 @@ export function CreateUserModal({ isOpen, onClose, onSubmit }: CreateUserModalPr
  {/* Password */}
  <div>
  <label className="block text-xs font-medium text-muted-foreground mb-1.5">
- Mật khẩu <span className="text-muted-foreground font-normal">(tuỳ chọn)</span>
+ Mật khẩu *
  </label>
  <input
  type="password"
+ required
+ minLength={8}
  value={formData.password}
  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
  className={inputCls}
- placeholder="Để trống để tự tạo"
+ placeholder="Tối thiểu 8 ký tự"
  />
  </div>
 

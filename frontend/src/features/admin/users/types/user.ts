@@ -25,7 +25,7 @@ export interface CreateUserData {
  email: string;
  username: string;
  role: string;
- password?: string;
+ password: string;
  first_name?: string;
  last_name?: string;
  avatar_url?: string;

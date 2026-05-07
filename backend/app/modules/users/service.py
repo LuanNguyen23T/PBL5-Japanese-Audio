@@ -108,14 +108,11 @@ class UserService:
         if existing_user:
             raise UserAlreadyExistsException("Username already taken")
 
-        # Generate password if not provided
-        password = user_data.password if user_data.password else generate_random_password()
-
         # Create new user
         user = User(
             email=user_data.email,
             username=user_data.username,
-            hashed_password=get_password_hash(password),
+            hashed_password=get_password_hash(user_data.password),
             role=user_data.role,
             email_verified=False,
             first_name=user_data.first_name,
@@ -383,6 +380,5 @@ class UserService:
         # Save changes
         db_user = await self.repository.update(db_user)
         return db_user
-
 
 
