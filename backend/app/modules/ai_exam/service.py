@@ -8,6 +8,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Optional, Sequence
+from app.core.memory.planner import MIAPlanner
 
 from app.modules.ai_exam.schemas import (
     AIExamResult,
@@ -852,6 +853,7 @@ class AIExamService:
             self._reazon._load_model()
         except Exception as exc:
             logger.warning("Failed to eagerly load ReazonSpeech model: %s", exc)
+        self.planner = MIAPlanner()
 
     def generate(
         self,
@@ -862,6 +864,7 @@ class AIExamService:
         cloudinary_public_id: Optional[str] = None,
         cloudinary_format: Optional[str] = "mp3",
         progress_callback: Optional[Callable[[str], None]] = None,
+        user_id: Optional[int] = None,
     ) -> AIExamResult:
         self._notify(progress_callback, "Step 2/7: Detecting bell timestamps...")
         split_segments = self._splitter.split_audio(audio_bytes, suffix=Path(filename).suffix or ".mp3")
@@ -906,17 +909,29 @@ class AIExamService:
             for segment in split_segments
         ]
 
-        self._notify(progress_callback, "Step 7/7: Attaching clipped audio URLs...")
         if cloudinary_public_id:
             self._attach_audio_urls(questions, cloudinary_public_id, cloudinary_format or "mp3")
 
-        return AIExamResult(
+        result = AIExamResult(
             raw_transcript=raw_transcript,
             refined_script=refined_script,
             split_segments=result_split_segments,
             timestamps=timestamps,
             questions=questions,
         )
+        
+        # MIA: Store successful exam generation in memory
+        # Using the transcript as the interaction key
+        import asyncio
+        asyncio.create_task(self.planner.provide_feedback(
+            task_type="ai_exam_generation",
+            strategy=f"JLPT {jlpt_level} exam generated from audio {filename}",
+            quality=1.0,
+            user_id=user_id,
+            interaction=raw_transcript[:1000] # Interaction key is the first 1000 chars of transcript
+        ))
+
+        return result
 
     @property
     def model_name(self) -> str:

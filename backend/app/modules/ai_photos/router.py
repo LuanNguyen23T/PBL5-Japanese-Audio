@@ -38,6 +38,7 @@ async def _generate_photo_background(job_id: str, request: AIPhotoRequest, user_
             question_text=request.question_text,
             script=request.script,
             answers=request.answers,
+            user_id=user_id,
         )
 
         job.status = "done"
@@ -78,7 +79,7 @@ async def _generate_photo_background(job_id: str, request: AIPhotoRequest, user_
 async def generate_ai_photo(
     request: AIPhotoRequest,
     service: AIPhotoService = Depends(get_service),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Generate an AI JLPT photo.
@@ -92,6 +93,7 @@ async def generate_ai_photo(
             question_text=request.question_text,
             script=request.script,
             answers=request.answers,
+            user_id=current_user.id,
         )
         return AIPhotoResponse(**result)
     except HTTPException:
