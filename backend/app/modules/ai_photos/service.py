@@ -255,7 +255,7 @@ class AIPhotoService:
         )
         return self._apply_scene_guardrails(fallback_prompt, fallback_negative, for_action)
 
-    async def _build_english_prompt(self, lm_input: str, for_action: bool) -> tuple[str, str]:
+    async def _build_english_prompt(self, lm_input: str, for_action: bool, mia_context: str = "") -> tuple[str, str]:
         style_positive = self._clean_text(self.base_prompt) or (
             "monochrome black and white manga-style, clean lineart, high contrast, educational worksheet style"
         )
@@ -285,6 +285,9 @@ class AIPhotoService:
         )
         if for_action:
             system += " Focus on one key action if action mode is requested."
+
+        if mia_context:
+            system += f" \n\nIMPORTANT: Here are some previously successful strategies and historical context from this user. Use these as strong inspiration for your prompt style:\n{mia_context}"
 
         payloads = [
             {
@@ -520,15 +523,15 @@ class AIPhotoService:
                 answers=answers,
             )
             
-            # MIA: Enrich prompt with memory
-            enriched_input = await self.planner.plan_task(
+            # MIA: Get context without replacing the user's raw input
+            mia_context = await self.planner.plan_task(
                 task_type="ai_photo_context",
                 user_input=lm_input,
                 user_id=user_id,
                 context={"photo_type": "context"}
             )
             
-            lm_prompt, lm_negative = await self._build_english_prompt(enriched_input, for_action=False)
+            lm_prompt, lm_negative = await self._build_english_prompt(lm_input, for_action=False, mia_context=mia_context)
             image = await self._generate_single_image(lm_prompt, lm_negative)
             lm_info = f"prompt: {lm_prompt}\nnegative_prompt: {lm_negative}"
             
@@ -548,7 +551,15 @@ class AIPhotoService:
                     detail="Action type requires exactly 4 answer choices.",
                 )
             panels: List[PILImage] = []
+            # MIA: Get context for action
+            mia_context = await self.planner.plan_task(
+                task_type="ai_photo_action",
+                user_input=description,
+                user_id=user_id,
+                context={"photo_type": "action"}
+            )
             prompts: List[str] = []
+
             for answer in answers[:4]:
                 lm_input = self._format_lm_input(
                     description=description,
@@ -557,7 +568,7 @@ class AIPhotoService:
                     answers=answers[:4],
                     answer_focus=answer,
                 )
-                p, n = await self._build_english_prompt(lm_input, for_action=True)
+                p, n = await self._build_english_prompt(lm_input, for_action=True, mia_context=mia_context)
                 prompts.append(f"prompt: {p} || negative_prompt: {n}")
                 panels.append(await self._generate_single_image(p, n))
             lm_info = "\n---\n".join(prompts)

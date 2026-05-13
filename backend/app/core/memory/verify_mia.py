@@ -47,5 +47,33 @@ async def verify_mia_flow():
     else:
         logger.error("❌ Historical memory retrieval failed.")
 
+    # Test 4: Storing and Retrieving Knowledge for Chatbot
+    logger.info("Testing Knowledge Memory for Chatbot...")
+    chat_context = await planner.plan_chat_response(
+        user_input="How do I use ba yokatta?",
+        user_id=1
+    )
+    logger.info(f"Chat Context Output:\n{chat_context}")
+    if "ba yokatta" in chat_context:
+        logger.info("✅ Knowledge retrieval successful!")
+    else:
+        logger.error("❌ Knowledge retrieval failed.")
+
+    # Test 5: Storing and Retrieving Learning History for Assessment
+    logger.info("Testing Learning History for Capability Assessment...")
+    await planner.memory.store_learning_history(
+        user_id=1,
+        exam_id=101,
+        score=45.5,
+        evaluation="User struggled with N4 transitive verbs and fast-paced station announcements."
+    )
+    
+    assessment_context = await planner.assess_capability(user_id=1)
+    logger.info(f"Assessment Context Output:\n{assessment_context}")
+    if "station announcements" in assessment_context:
+        logger.info("✅ Learning history retrieval successful!")
+    else:
+        logger.error("❌ Learning history retrieval failed.")
+
 if __name__ == "__main__":
     asyncio.run(verify_mia_flow())
