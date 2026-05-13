@@ -6,7 +6,7 @@ import re
 import logging
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, List, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -26,6 +26,7 @@ else:
 
 from app.core.config import BASE_DIR, get_settings
 from app.modules.ai_photos.schemas import PhotoType
+from app.core.memory.planner import MIAPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class AIPhotoService:
         self.use_negative_prompt = self.settings.AI_PHOTO_USE_NEGATIVE_PROMPT
         self.output_dir = (BASE_DIR / self.settings.AI_PHOTO_OUTPUT_DIR).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.planner = MIAPlanner()
 
     # ------------------------------------------------------------------
     # Prompt optimization
@@ -508,6 +510,7 @@ class AIPhotoService:
         question_text: str | None,
         script: str | None,
         answers: list[str] | None,
+        user_id: Optional[int] = None,
     ) -> dict:
         if photo_type == PhotoType.context:
             lm_input = self._format_lm_input(
@@ -516,9 +519,27 @@ class AIPhotoService:
                 script=script,
                 answers=answers,
             )
-            lm_prompt, lm_negative = await self._build_english_prompt(lm_input, for_action=False)
+            
+            # MIA: Enrich prompt with memory
+            enriched_input = await self.planner.plan_task(
+                task_type="ai_photo_context",
+                user_input=lm_input,
+                user_id=user_id,
+                context={"photo_type": "context"}
+            )
+            
+            lm_prompt, lm_negative = await self._build_english_prompt(enriched_input, for_action=False)
             image = await self._generate_single_image(lm_prompt, lm_negative)
             lm_info = f"prompt: {lm_prompt}\nnegative_prompt: {lm_negative}"
+            
+            # MIA: Store result in memory
+            await self.planner.provide_feedback(
+                task_type="ai_photo_context",
+                strategy=lm_prompt,
+                quality=1.0, # Defaulting to 1.0 for successful generation, can be refined with user rating later
+                user_id=user_id,
+                interaction=description
+            )
 
         else:
             if not answers or len(answers) < 4:
