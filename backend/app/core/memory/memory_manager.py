@@ -10,6 +10,8 @@ class MemoryManager:
         # We use different collections for different types of memory
         self.procedural_memory = VectorDB(collection_name="procedural_memory")
         self.historical_memory = VectorDB(collection_name="historical_memory")
+        self.knowledge_memory = VectorDB(collection_name="knowledge_memory")
+        self.learning_history_memory = VectorDB(collection_name="learning_history_memory")
 
     async def store_procedural(self, task_type: str, strategy: str, result_quality: float, metadata: dict = None):
         """
@@ -79,3 +81,68 @@ class MemoryManager:
                     "metadata": results["metadatas"][0][i]
                 })
         return memories
+
+    async def store_knowledge(self, domain: str, content: str, metadata: dict = None):
+        """Store linguistic knowledge (grammar, vocabulary, scripts)."""
+        mem_id = str(uuid.uuid4())
+        meta = {
+            "domain": domain,
+            **(metadata or {})
+        }
+        await self.knowledge_memory.add_documents(
+            ids=[mem_id],
+            documents=[content],
+            metadatas=[meta]
+        )
+        logger.info(f"Stored knowledge: {mem_id} in domain {domain}")
+
+    async def retrieve_knowledge(self, query: str, domain: Optional[str] = None, limit: int = 5) -> list[dict]:
+        """Retrieve relevant linguistic knowledge."""
+        where_clause = {"domain": domain} if domain else None
+        results = await self.knowledge_memory.query(
+            query_texts=[query],
+            n_results=limit,
+            where=where_clause
+        )
+        
+        knowledge = []
+        if results and results["documents"]:
+            for i in range(len(results["documents"][0])):
+                knowledge.append({
+                    "content": results["documents"][0][i],
+                    "metadata": results["metadatas"][0][i]
+                })
+        return knowledge
+
+    async def store_learning_history(self, user_id: int, exam_id: int, score: float, evaluation: str, metadata: dict = None):
+        """Store user exam history and capability evaluation."""
+        mem_id = str(uuid.uuid4())
+        meta = {
+            "user_id": user_id,
+            "exam_id": exam_id,
+            "score": score,
+            **(metadata or {})
+        }
+        await self.learning_history_memory.add_documents(
+            ids=[mem_id],
+            documents=[evaluation],
+            metadatas=[meta]
+        )
+        logger.info(f"Stored learning history: {mem_id} for user {user_id}")
+
+    async def retrieve_learning_history(self, user_id: int, query: str = "general capability", limit: int = 5) -> list[dict]:
+        """Retrieve user's learning history and evaluations."""
+        results = await self.learning_history_memory.query(
+            query_texts=[query],
+            n_results=limit,
+            where={"user_id": user_id}
+        )
+        
+        history = []
+        if results and results["documents"]:
+            for i in range(len(results["documents"][0])):
+                history.append({
+                    "evaluation": results["documents"][0][i],
+                    "metadata": results["metadatas"][0][i]
+                })
+        return history

@@ -48,6 +48,33 @@ async def seed_initial_memory():
         )
         logger.info(f"Seeded procedural memory for {s['task_type']}")
 
+    # 3. Seed Contextual Knowledge (Grammar, Vocabulary, Scripts)
+    knowledge_items = [
+        {
+            "domain": "grammar",
+            "content": "Rule [~ba yokatta]: Used to express regret about something that didn't happen in the past. Example: 'Motto benkyou sureba yokatta' (I should have studied more)."
+        },
+        {
+            "domain": "grammar",
+            "content": "Rule [~te iru]: Used to express an ongoing action or a state resulting from a past action. Example: 'Kare wa ima hon wo yonde iru' (He is reading a book now) or 'Kekkon shite iru' (is married)."
+        },
+        {
+            "domain": "vocabulary",
+            "content": "Station context: 'Kaisatsuguchi' (Ticket gate), 'Houmu' (Platform), 'Shuuten' (Terminal/Last stop). Often used in N4/N3 listening tests."
+        },
+        {
+            "domain": "conversation_script",
+            "content": "Classroom instruction pattern: 1. Teacher gets attention ('Minasan, chotto kitte kudasai'). 2. Explains the task ('Kyou wa 50-peeji kara desu'). 3. Sets a deadline or rule ('Ashita made ni dashite kudasai')."
+        }
+    ]
+
+    for k in knowledge_items:
+        await memory.store_knowledge(
+            domain=k["domain"],
+            content=k["content"]
+        )
+        logger.info(f"Seeded knowledge memory in domain {k['domain']}")
+
     logger.info("Memory seeding completed successfully.")
 
 if __name__ == "__main__":
