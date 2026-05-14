@@ -1,8 +1,9 @@
 import math
 import re
 from collections import defaultdict
+from datetime import datetime
 from typing import List, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from scipy.optimize import minimize_scalar
@@ -413,3 +414,70 @@ class TestService:
     ) -> TestSubmitResponse:
         exam = await self._get_exam_entity(exam_id, current_user)
         return await self._submit_exam_from_entity(exam, payload, current_user)
+
+    async def get_demo_exam(self) -> TestExamDetailResponse:
+        result = await self.db.execute(
+            select(Exam)
+            .options(
+                selectinload(Exam.audio),
+                selectinload(Exam.questions).selectinload(Question.answers),
+            )
+            .where(Exam.is_published == True)  # noqa: E712
+            .order_by(Exam.created_at.desc())
+        )
+        exam = result.scalars().first()
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Hiện chưa có đề mẫu nào được xuất bản",
+            )
+        return self._build_exam_detail_response(exam)
+
+    async def submit_demo_exam(self, exam_id: UUID, payload: TestSubmitRequest) -> TestSubmitResponse:
+        result = await self.db.execute(
+            select(Exam)
+            .options(selectinload(Exam.questions).selectinload(Question.answers))
+            .where(Exam.exam_id == exam_id, Exam.is_published == True)  # noqa: E712
+        )
+        exam = result.scalar_one_or_none()
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đề mẫu")
+
+        sorted_questions = _sort_questions(list(exam.questions))
+        question_lookup = {question.question_id: question for question in sorted_questions}
+        submitted_answers = {
+            item.question_id: item.answer_id
+            for item in payload.answers
+            if item.question_id in question_lookup
+        }
+
+        correct_answers = 0
+        answered_questions = 0
+        responses: List[Tuple[int, int]] = []
+
+        for question in sorted_questions:
+            if not _is_scored_question(question):
+                continue
+
+            selected_answer_id = submitted_answers.get(question.question_id)
+            is_correct = 0
+            if selected_answer_id:
+                answered_questions += 1
+                answer_lookup = {answer.answer_id: answer for answer in question.answers}
+                selected_answer = answer_lookup.get(selected_answer_id)
+                if selected_answer and selected_answer.is_correct:
+                    correct_answers += 1
+                    is_correct = 1
+
+            responses.append((_estimate_question_difficulty(question), is_correct))
+
+        total_questions = sum(1 for question in sorted_questions if _is_scored_question(question))
+        return TestSubmitResponse(
+            result_id=uuid4(),
+            exam_id=exam.exam_id,
+            score=round(calculate_irt_score(responses), 2),
+            total_questions=total_questions,
+            correct_answers=correct_answers,
+            answered_questions=answered_questions,
+            completed_at=datetime.utcnow(),
+        )
