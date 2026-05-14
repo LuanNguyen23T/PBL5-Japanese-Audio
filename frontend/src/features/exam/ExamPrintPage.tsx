@@ -207,6 +207,11 @@ export default function ExamPrintPage() {
  }
 
  @media print {
+ * {
+ -webkit-print-color-adjust: exact !important;
+ print-color-adjust: exact !important;
+ }
+
  body {
  background: white !important;
  }
@@ -227,9 +232,27 @@ export default function ExamPrintPage() {
  }
 
  .question-block,
+ .script-block,
  .group-block,
  .answer-card {
  break-inside: avoid;
+ }
+
+ .question-page,
+ .script-page {
+ break-before: page;
+ }
+
+ .question-page:first-child,
+ .script-page:first-child {
+ break-before: auto;
+ }
+
+ .answer-key-grid {
+ display: grid !important;
+ grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+ gap: 16px !important;
+ align-items: start;
  }
 
  .audio-access-card {
@@ -420,101 +443,77 @@ export default function ExamPrintPage() {
         )}
 
         <section className="px-8 py-8">
-          <div className="space-y-8">
-            {Object.entries(groupedQuestions).map(([groupName, groupQuestions], groupIndex) => (
-              <section key={groupName} className="group-block">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-rose-500">
+                Questions
+              </p>
+              <h2 className="mt-2 text-2xl font-bold text-stone-900">Phần câu hỏi</h2>
+            </div>
+            <div className="rounded-full bg-stone-100 px-4 py-2 text-xs font-semibold text-muted-foreground">
+              {questions.length} câu
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {questions.map((question) => (
+              <article
+                key={question.question_id}
+                className="question-page question-block rounded-[28px] border border-border bg-[linear-gradient(180deg,#fffefb_0%,#fff8f1_100%)] p-6"
+              >
                 <div className="mb-5 flex items-end justify-between gap-4 border-b border-border pb-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-500">
-                      Phần {groupIndex + 1}
+                      {question.mondai_group || 'Phần khác'}
                     </p>
-                    <h2 className="mt-1 text-2xl font-bold text-stone-900">{groupName}</h2>
+                    <h3 className="mt-1 text-2xl font-bold text-stone-900">
+                      Câu {question.question_number ?? '?'}
+                    </h3>
                   </div>
-                  <p className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-muted-foreground">
-                    {groupQuestions.length} câu hỏi
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-stone-900">Nội dung câu hỏi</p>
+                  <p className="mt-2 whitespace-pre-line text-base leading-8 tracking-normal text-stone-700">
+                    {normalizePrintText(question.question_text) || 'Chưa có nội dung câu hỏi'}
                   </p>
                 </div>
 
-                <div className="space-y-5">
-                  {groupQuestions.map((question) => {
-                    const correctAnswerIndex = question.answers.findIndex(
-                      (answer) => answer.is_correct
-                    )
+                {question.image_url && (
+                  <div className="mt-5">
+                    <img
+                      src={question.image_url}
+                      alt={`Hình minh họa cho câu ${question.question_number}`}
+                      className="max-h-80 rounded-2xl border border-border object-contain"
+                    />
+                  </div>
+                )}
 
-                    return (
-                      <article
-                        key={question.question_id}
-                        className="question-block rounded-[28px] border border-border bg-[linear-gradient(180deg,#fffefb_0%,#fff8f1_100%)] p-6"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-stone-500">
-                              Question
-                            </p>
-                            <h3 className="mt-2 text-xl font-bold text-stone-900">
-                              Câu {question.question_number ?? '?'}
-                            </h3>
-                          </div>
-                        </div>
-
-                        <div className="mt-5">
-                          <p className="text-sm font-semibold text-stone-900">Nội dung câu hỏi</p>
-                          <p className="mt-2 whitespace-pre-line text-base leading-8 tracking-normal text-stone-700">
-                            {normalizePrintText(question.question_text) ||
-                              'Chưa có nội dung câu hỏi'}
-                          </p>
-                        </div>
-
-                        {question.image_url && (
-                          <div className="mt-5">
-                            <img
-                              src={question.image_url}
-                              alt={`Hình minh họa cho câu ${question.question_number}`}
-                              className="max-h-80 rounded-2xl border border-border object-contain"
-                            />
-                          </div>
+                <div className="mt-6 grid gap-3">
+                  {question.answers.map((answer, answerIndex) => (
+                    <div
+                      key={answer.answer_id}
+                      className="answer-card flex items-start gap-4 rounded-2xl border border-border bg-card px-4 py-3"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-stone-300 bg-card text-sm font-bold text-stone-700">
+                        {String.fromCharCode(65 + answerIndex)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
+                          {normalizePrintText(answer.content) || '.................................'}
+                        </p>
+                        {answer.image_url && (
+                          <img
+                            src={answer.image_url}
+                            alt={`Đáp án ${String.fromCharCode(65 + answerIndex)} câu ${question.question_number}`}
+                            className="mt-3 max-h-52 rounded-2xl border border-border object-contain"
+                          />
                         )}
-
-                        <div className="mt-6 grid gap-3">
-                          {question.answers.map((answer, answerIndex) => (
-                            <div
-                              key={answer.answer_id}
-                              className="answer-card flex items-start gap-4 rounded-2xl border border-border bg-card px-4 py-3"
-                            >
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-stone-900 text-sm font-bold text-white">
-                                {String.fromCharCode(65 + answerIndex)}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
-                                  {normalizePrintText(answer.content) ||
-                                    '.................................'}
-                                </p>
-                                {answer.image_url && (
-                                  <img
-                                    src={answer.image_url}
-                                    alt={`Đáp án ${String.fromCharCode(65 + answerIndex)} câu ${question.question_number}`}
-                                    className="mt-3 max-h-52 rounded-2xl border border-border object-contain"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl bg-stone-900 px-4 py-3 text-xs text-stone-200">
-                          <span>Mã câu hỏi: {question.question_id}</span>
-                          <span>
-                            Đáp án đúng:{' '}
-                            {correctAnswerIndex >= 0
-                              ? String.fromCharCode(65 + correctAnswerIndex)
-                              : 'Chưa thiết lập'}
-                          </span>
-                        </div>
-                      </article>
-                    )
-                  })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </section>
+              </article>
             ))}
           </div>
         </section>
@@ -523,11 +522,9 @@ export default function ExamPrintPage() {
           <div className="mb-6 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-rose-500">
-                Appendix
+                Scripts
               </p>
-              <h2 className="mt-2 text-2xl font-bold text-stone-900">
-                Script, giải thích và đáp án
-              </h2>
+              <h2 className="mt-2 text-2xl font-bold text-stone-900">Phần script</h2>
             </div>
             <div className="rounded-full bg-card px-4 py-2 text-xs font-semibold text-muted-foreground shadow-sm">
               {questions.length} câu
@@ -535,64 +532,42 @@ export default function ExamPrintPage() {
           </div>
 
           <div className="space-y-6">
-            {Object.entries(groupedQuestions).map(([groupName, groupQuestions]) => (
-              <section key={groupName} className="rounded-[28px] border border-border bg-card p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-lg font-bold text-stone-900">{groupName}</h3>
-                  <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-muted-foreground">
-                    {groupQuestions.length} câu
-                  </span>
+            {questions.map((question) => (
+              <article
+                key={question.question_id}
+                className="script-page script-block rounded-[28px] border border-border bg-card p-6"
+              >
+                <div className="mb-5 flex items-end justify-between gap-4 border-b border-border pb-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-500">
+                      {question.mondai_group || 'Phần khác'}
+                    </p>
+                    <h3 className="mt-1 text-2xl font-bold text-stone-900">
+                      Script câu {question.question_number ?? '?'}
+                    </h3>
+                  </div>
                 </div>
 
-                <div className="mt-5 space-y-5">
-                  {groupQuestions.map((question) => {
-                    const correctAnswerIndex = question.answers.findIndex(
-                      (answer) => answer.is_correct
-                    )
-
-                    return (
-                      <article
-                        key={question.question_id}
-                        className="rounded-[24px] border border-border bg-stone-50 p-5"
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <p className="text-sm font-semibold text-stone-900">
-                            Câu {question.question_number ?? '?'}
-                          </p>
-                          <span className="rounded-full bg-stone-900 px-3 py-1 text-xs font-bold text-white">
-                            Đáp án đúng:{' '}
-                            {correctAnswerIndex >= 0
-                              ? String.fromCharCode(65 + correctAnswerIndex)
-                              : 'Chưa thiết lập'}
-                          </span>
-                        </div>
-
-                        {question.script_text && (
-                          <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
-                              Script
-                            </p>
-                            <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
-                              {normalizePrintText(question.script_text)}
-                            </p>
-                          </div>
-                        )}
-
-                        {question.explanation && (
-                          <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
-                              Giải thích
-                            </p>
-                            <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
-                              {normalizePrintText(question.explanation)}
-                            </p>
-                          </div>
-                        )}
-                      </article>
-                    )
-                  })}
+                <div className="rounded-2xl border border-border bg-stone-50 px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                    Script
+                  </p>
+                  <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
+                    {normalizePrintText(question.script_text) || 'Chưa có script cho câu này.'}
+                  </p>
                 </div>
-              </section>
+
+                {question.explanation && (
+                  <div className="mt-4 rounded-2xl border border-border bg-stone-50 px-4 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                      Giải thích
+                    </p>
+                    <p className="mt-3 whitespace-pre-line text-sm leading-7 tracking-normal text-stone-700">
+                      {normalizePrintText(question.explanation)}
+                    </p>
+                  </div>
+                )}
+              </article>
             ))}
           </div>
         </section>
@@ -610,7 +585,7 @@ export default function ExamPrintPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="answer-key-grid grid gap-4 md:grid-cols-2">
             {Object.entries(groupedQuestions).map(([groupName, groupQuestions]) => (
               <section key={groupName} className="rounded-[28px] border border-border bg-card p-5">
                 <h3 className="text-lg font-bold text-stone-900">{groupName}</h3>
