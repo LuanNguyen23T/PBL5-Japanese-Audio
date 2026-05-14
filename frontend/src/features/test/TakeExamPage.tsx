@@ -71,7 +71,7 @@ interface TakeExamContentProps {
  }) => Promise<TestSubmitResult>
  onClose?: () => void
  standalone?: boolean
- variant?: 'default' | 'arena'
+ variant?: 'default' | 'arena' | 'demo'
  returnPath?: string
 }
 
@@ -106,6 +106,7 @@ export function TakeExamContent({
  const startTimeoutRef = useRef<number | null>(null)
  const selectedAudioMode = initialAudioMode || exam?.audio_mode || 'practice'
  const simulationAudioSrc = useMemo(() => getGlobalAudioUrl(exam), [exam])
+ const isDemo = variant === 'demo'
 
  useEffect(() => {
  if (startPhase !== 'active' || selectedAudioMode !== 'simulation') return
@@ -663,7 +664,9 @@ export function TakeExamContent({
  </div>
  <h2 className="text-3xl font-black tracking-tight text-foreground">Bài thi đã được nộp</h2>
  <p className="mt-3 text-base leading-7 text-muted-foreground">
- Kết quả đã được lưu vào hệ thống. Bạn có thể quay lại danh sách đề thi hoặc xem lại điểm số tổng hợp bên dưới.
+ {isDemo
+ ? 'Đây là điểm tạm thời cho lượt dùng thử. Đăng ký tài khoản để lưu lịch sử, xem lại bài làm và luyện tiếp với nhiều đề hơn.'
+ : 'Kết quả đã được lưu vào hệ thống. Bạn có thể quay lại danh sách đề thi hoặc xem lại điểm số tổng hợp bên dưới.'}
  </p>
 
  <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -700,6 +703,7 @@ export function TakeExamContent({
  <Button variant="outline" className="rounded-2xl px-5" onClick={() => setResult(null)}>
  {onClose ? 'Tiếp tục xem' : 'Ở lại trang này'}
  </Button>
+ {!isDemo && (
  <Button
  className="rounded-2xl bg-indigo-600 px-5 font-bold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-700"
  onClick={() => setShowAnalysis(true)}
@@ -707,11 +711,20 @@ export function TakeExamContent({
  <Sparkles className="mr-2 h-4 w-4" />
  Xem đánh giá năng lực (AI)
  </Button>
+ )}
+ {isDemo && (
+ <Button
+ className="rounded-2xl bg-indigo-600 px-5 font-bold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-700"
+ onClick={() => navigate('/register')}
+ >
+ Đăng ký để lưu kết quả
+ </Button>
+ )}
  <Button
  className="rounded-2xl bg-blue-600 px-5 hover:bg-blue-700"
  onClick={() => (onClose ? onClose() : navigate(returnPath || '/exam'))}
  >
- {onClose ? 'Đóng cửa sổ' : variant === 'arena' ? 'Về cuộc thi' : 'Về danh sách đề'}
+ {onClose ? 'Đóng cửa sổ' : variant === 'arena' ? 'Về cuộc thi' : isDemo ? 'Về trang chủ' : 'Về danh sách đề'}
  </Button>
  </div>
  </div>

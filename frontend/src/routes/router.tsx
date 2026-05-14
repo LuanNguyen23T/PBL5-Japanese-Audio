@@ -7,6 +7,7 @@ import { GuestRoute } from '../components/GuestRoute'
 // Lazy load components
 const Home = lazy(() => import('../pages/Home'))
 const Dashboard = lazy(() => import('../pages/Dashboard'))
+const DemoExamPage = lazy(() => import('../features/demo/DemoExamPage'))
 const Login = lazy(() => import('../pages/Login'))
 const Register = lazy(() => import('../pages/Register'))
 const GoogleOAuthCallbackPage = lazy(() => import('../features/auth/GoogleOAuthCallbackPage'))
@@ -58,6 +59,10 @@ const routes = {
     {
       index: true,
       element: <Home />,
+    },
+    {
+      path: 'demo',
+      element: <DemoExamPage />,
     },
   ],
   guestOnly: [

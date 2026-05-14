@@ -112,7 +112,7 @@ export default function Home() {
  <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
  </Button>
  <Button
- onClick={() => navigate('/dashboard')}
+ onClick={() => navigate('/demo')}
  variant="outline"
  size="lg"
  className="min-w-[200px] h-12 text-base"
@@ -291,7 +291,7 @@ export default function Home() {
  
  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-6">
  <Button
- onClick={() => navigate('/register')}
+ onClick={() => navigate('/demo')}
  size="lg"
  variant="secondary"
  className="min-w-[220px] h-14 text-base font-semibold shadow-xl hover:shadow-2xl group"

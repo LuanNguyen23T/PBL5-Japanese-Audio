@@ -13,6 +13,7 @@ from app.modules.questions.router import router as questions_router
 from app.modules.ai_exam.router import router as ai_exam_router
 from app.modules.ai_photos.router import router as ai_photos_router
 from app.modules.test.router import router as test_router
+from app.modules.demo.router import router as demo_router
 from app.modules.result.router import router as result_router
 from app.modules.ai_feedback.router import router as ai_feedback_router
 from app.modules.system_feedback.router import router as system_feedback_router
@@ -123,6 +124,10 @@ app = FastAPI(
             "description": "Chat completion proxy from app to LM Studio Gemma model"
         },
         {
+            "name": "demo",
+            "description": "Unauthenticated sample exam trial without persisted results"
+        },
+        {
             "name": "notifications",
             "description": "In-app notifications for users (AI exam completion, etc.)"
         }
@@ -193,6 +198,7 @@ app.include_router(questions_router, prefix="/api")
 app.include_router(ai_exam_router, prefix="/api")
 app.include_router(ai_photos_router, prefix="/api")
 app.include_router(test_router, prefix="/api")
+app.include_router(demo_router, prefix="/api")
 app.include_router(result_router, prefix="/api")
 app.include_router(ai_feedback_router, prefix="/api")
 app.include_router(system_feedback_router, prefix="/api")
