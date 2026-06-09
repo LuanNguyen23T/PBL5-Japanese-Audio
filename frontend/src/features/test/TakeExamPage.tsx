@@ -550,7 +550,7 @@ export function TakeExamContent({
  <img
  src={activeQuestion.image_url}
  alt={`Question ${activeQuestion.question_number}`}
- className="h-auto max-h-[420px] w-full object-cover"
+ className="h-auto max-h-[420px] w-full object-contain"
  />
  </div>
  )}
@@ -595,7 +595,7 @@ export function TakeExamContent({
  <img
  src={answer.image_url}
  alt={`Answer ${index + 1}`}
- className="mt-4 max-h-40 rounded-2xl border border-border object-cover"
+ className="mt-4 max-h-40 rounded-2xl border border-border object-contain"
  />
  )}
  </div>

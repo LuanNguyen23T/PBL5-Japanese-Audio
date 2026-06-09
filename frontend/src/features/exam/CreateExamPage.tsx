@@ -1379,7 +1379,7 @@ function Step3({ questions, examTitle, onBack, onPublish, publishing }: Step3Pro
  <div>
  <label className="mb-2 block text-sm font-bold text-card-foreground">Hình ảnh minh họa</label>
  <div className="space-y-3">
- {q.image_url ? <img src={q.image_url} alt="Question illustration" className="max-h-56 w-full rounded-xl border border-border object-cover" /> : null}
+ {q.image_url ? <img src={q.image_url} alt="Question illustration" className="max-h-56 w-full rounded-xl border border-border object-contain" /> : null}
  <input value={q.image_url || ''} readOnly placeholder="Chưa có URL ảnh" className="w-full rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-foreground outline-none dark:text-muted-foreground" />
  </div>
  </div>

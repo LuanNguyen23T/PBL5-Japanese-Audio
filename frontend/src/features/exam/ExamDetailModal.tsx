@@ -984,23 +984,23 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  <label className="block text-sm font-bold text-card-foreground">
  Hình ảnh minh họa
  </label>
- {activeEdited.image_url && canEdit ? (
- <button
- type="button"
- onClick={() => handleRemoveQuestionImage(activeQ.question_id)}
- className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
- >
- <Trash2 className="h-3.5 w-3.5" />
- Xoá ảnh
- </button>
- ) : null}
+ 	{activeEdited.image_url && canEdit ? (
+		<button
+			type="button"
+			onClick={() => handleRemoveQuestionImage(activeQ.question_id)}
+			className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+		>
+			<Trash2 className="h-3.5 w-3.5" />
+			Xoá ảnh
+		</button>
+	) : null}
  </div>
  <div className="space-y-3">
  {activeEdited.image_url && canEdit ? (
  <img
  src={activeEdited.image_url}
  alt="Question illustration"
- className="w-full max-h-56 object-cover rounded-xl border border-border"
+ className="w-full max-h-56 object-contain rounded-xl border border-border"
  />
  ) : null}
  <input

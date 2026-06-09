@@ -1300,7 +1300,7 @@ function Step3Review({ editableQuestions, setEditableQuestions, audioFile }: Ste
                       <img
                         src={activeQ.image_url}
                         alt="Question illustration"
-                        className="w-full max-h-56 object-cover rounded-xl border border-border"
+                        className="w-full max-h-56 object-contain rounded-xl border border-border"
                       />
                     ) : null}
                     <input
