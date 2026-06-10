@@ -10,6 +10,7 @@ import { UserMenu } from '../components/ui/UserMenu'
 import { Toaster } from '../components/ui/toaster'
 import { toast } from '../hooks/use-toast'
 import { AIChatWidget } from '../components/AIChatWidget'
+import { apiFetch } from '../lib/apiClient'
 
 const publicNavLinks = [{ to: '/', label: 'Home' }] as const
 
@@ -139,6 +140,41 @@ export default function RootLayout() {
     } catch { /* ignore */ }
     localStorage.removeItem('ai_exam_draft_saved')
   }, [])
+
+  // Poll unread notifications periodically from backend
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+    const checkNotifications = async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/notifications?unread_only=true`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.notifications && data.notifications.length > 0) {
+            for (const notif of data.notifications) {
+              toast({
+                title: notif.title,
+                description: notif.message,
+              })
+              // Mark as read
+              await apiFetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
+                method: 'PUT',
+              }).catch(() => {})
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll notifications:', err)
+      }
+    }
+
+    checkNotifications()
+    const interval = setInterval(checkNotifications, 10000) // Poll every 10 seconds
+
+    return () => clearInterval(interval)
+  }, [isAuthenticated])
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors">

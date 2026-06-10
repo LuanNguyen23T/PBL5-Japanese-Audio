@@ -34,6 +34,7 @@ import { examClient } from './api/examClient'
 import AIPhotoGenerator from './components/AIPhotoGenerator'
 import { AIFeedbackModal } from '@/components/AIFeedbackModal'
 import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/context/AuthContext'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,14 @@ type Level = 'N5' | 'N4' | 'N3' | 'N2' | 'N1'
 type WizardStep = 1 | 2 | 3 | 4
 
 const LEVELS: Level[] = ['N5', 'N4', 'N3', 'N2', 'N1']
+
+function formatTitleWithLevel(rawTitle: string, lvl: Level, isDraft: boolean) {
+  const clean = rawTitle
+    .replace(/^\[(?:Nháp|Tạm thời|Chưa hoàn thành)\]\s*/i, '')
+    .replace(/^\[N[1-5]\]\s*/i, '')
+    .trim()
+  return isDraft ? `[Nháp] [${lvl}] ${clean}` : `[${lvl}] ${clean}`
+}
 
 const LEVEL_COLORS: Record<Level, string> = {
   N5: 'from-emerald-400 to-teal-500',
@@ -1371,10 +1380,12 @@ interface Step4Props {
   draftId: string
   audioId?: string
   onBack: () => void
+  jobId?: string
 }
 
-function Step4Save({ questions, level, title, description, draftId, audioId, onBack }: Step4Props) {
+function Step4Save({ questions, level, title, description, draftId, audioId, onBack, jobId }: Step4Props) {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeQIdx, setActiveQIdx] = useState<number>(0)
@@ -1387,7 +1398,7 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
       }
       // Create exam draft
       const exam = await examClient.createExam({
-        title: `[${level}] ${title}`,
+        title: formatTitleWithLevel(title, level, false),
         description,
         time_limit: 60,
         audio_id: audioId,
@@ -1429,6 +1440,14 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
 
       // Publish
       await examClient.updateExam(exam.exam_id, { is_published: true, current_step: 3 })
+      const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+      localStorage.removeItem(userJobKey)
+      localStorage.removeItem('active_ai_exam_job_id')
+      if (jobId) {
+        localStorage.removeItem(`ai_exam_title_${jobId}`)
+        localStorage.removeItem(`ai_exam_level_${jobId}`)
+        localStorage.removeItem(`ai_exam_description_${jobId}`)
+      }
       setSaved(true)
       toast({
         title: '🎉 Sinh đề AI thành công!',
@@ -1682,7 +1701,9 @@ function Step4Save({ questions, level, title, description, draftId, audioId, onB
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function AICreateExamPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { user } = useAuth()
 
   // Step 1 state
   const [audioFile, setAudioFile] = useState<File | null>(null)
@@ -1707,9 +1728,10 @@ export default function AICreateExamPage() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [resuming, setResuming] = useState(false)
 
-  // ── Resume from ?job= query param (notification link) ───────────────────
+  // ── Resume from ?job= query param or active job in localStorage ───────────────────
   useEffect(() => {
-    const jobParam = searchParams.get('job')
+    const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+    const jobParam = searchParams.get('job') || localStorage.getItem(userJobKey) || localStorage.getItem('active_ai_exam_job_id')
     if (!jobParam) return
 
     setResuming(true)
@@ -1727,16 +1749,63 @@ export default function AICreateExamPage() {
           difficulty: inferDifficulty(question),
         }))
         setEditableQuestions(mapped)
+
+        // Restore title/level/description from localStorage
+        const storedTitle = localStorage.getItem(`ai_exam_title_${jobParam}`)
+        const storedLevel = localStorage.getItem(`ai_exam_level_${jobParam}`)
+        const storedDescription = localStorage.getItem(`ai_exam_description_${jobParam}`)
+        if (storedTitle) setTitle(storedTitle)
+        if (storedLevel) setLevel(storedLevel as Level)
+        if (storedDescription) setDescription(storedDescription)
+
+        // Fallback: If not in localStorage, query from DB draft exam
+        if (result.draft_exam_id) {
+          examClient.getExam(result.draft_exam_id).then((draftExam) => {
+            const currentTitle = localStorage.getItem(`ai_exam_title_${jobParam}`)
+            if (!currentTitle && draftExam.title) {
+              const match = draftExam.title.match(/^\[(?:Nháp|Tạm thời|Chưa hoàn thành)\]\s*\[(N[1-5])\]\s*(.*)$/i)
+              if (match) {
+                setLevel(match[1] as Level)
+                setTitle(match[2].trim())
+              } else {
+                setTitle(draftExam.title)
+              }
+            }
+            if (!localStorage.getItem(`ai_exam_description_${jobParam}`) && draftExam.description) {
+              setDescription(draftExam.description)
+            }
+          }).catch(() => {})
+        }
+
         setStep(3)
       } else if (status.status === 'processing' || status.status === 'pending') {
         setJobId(jobParam)
+        
+        const storedTitle = localStorage.getItem(`ai_exam_title_${jobParam}`)
+        const storedLevel = localStorage.getItem(`ai_exam_level_${jobParam}`)
+        const storedDescription = localStorage.getItem(`ai_exam_description_${jobParam}`)
+        if (storedTitle) setTitle(storedTitle)
+        if (storedLevel) setLevel(storedLevel as Level)
+        if (storedDescription) setDescription(storedDescription)
+
         setStep(2)
       } else if (status.status === 'failed') {
         setFailed(true)
         setFailedMsg(status.error || 'Pipeline thất bại')
+        setJobId(jobParam)
+
+        const storedTitle = localStorage.getItem(`ai_exam_title_${jobParam}`)
+        const storedLevel = localStorage.getItem(`ai_exam_level_${jobParam}`)
+        const storedDescription = localStorage.getItem(`ai_exam_description_${jobParam}`)
+        if (storedTitle) setTitle(storedTitle)
+        if (storedLevel) setLevel(storedLevel as Level)
+        if (storedDescription) setDescription(storedDescription)
+
         setStep(2)
       }
     }).catch(() => {
+      localStorage.removeItem(userJobKey)
+      localStorage.removeItem('active_ai_exam_job_id')
       toast({ title: 'Lỗi', description: 'Không tìm thấy job AI này.', variant: 'destructive' })
     }).finally(() => {
       setResuming(false)
@@ -1744,7 +1813,7 @@ export default function AICreateExamPage() {
       setSearchParams({}, { replace: true })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [user])
 
 
   // ── Reusable save-draft logic ───────────────────────────────────────────
@@ -1759,7 +1828,7 @@ export default function AICreateExamPage() {
     try {
       if (existingDraftId) await examClient.deleteExam(existingDraftId).catch(() => {})
       const exam = await examClient.createExam({
-        title: `[Nháp] [${lvl}] ${ttl}`,
+        title: formatTitleWithLevel(ttl, lvl, true),
         description: desc,
         time_limit: 60,
         audio_id: result?.audio_id,
@@ -1809,6 +1878,12 @@ export default function AICreateExamPage() {
     try {
       const job = await aiExamClient.generateExamFromAudio(audioFile, level, title)
       setJobId(job.job_id)
+      const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+      localStorage.setItem(userJobKey, job.job_id)
+      localStorage.setItem('active_ai_exam_job_id', job.job_id)
+      localStorage.setItem(`ai_exam_title_${job.job_id}`, title)
+      localStorage.setItem(`ai_exam_level_${job.job_id}`, level)
+      localStorage.setItem(`ai_exam_description_${job.job_id}`, description)
       setStep(2)
     } catch (e: any) {
       toast({
@@ -1816,6 +1891,47 @@ export default function AICreateExamPage() {
         description: e.message || 'Không thể bắt đầu pipeline.',
         variant: 'destructive',
       })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCancelStep2 = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn hủy quá trình sinh đề này không?')) return
+    const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+    localStorage.removeItem(userJobKey)
+    localStorage.removeItem('active_ai_exam_job_id')
+    if (jobId) {
+      localStorage.removeItem(`ai_exam_title_${jobId}`)
+      localStorage.removeItem(`ai_exam_level_${jobId}`)
+      localStorage.removeItem(`ai_exam_description_${jobId}`)
+      await aiExamClient.deleteJob(jobId).catch(() => {})
+    }
+    setStep(1)
+    setJobId('')
+    setFailed(false)
+  }
+
+  const handleCancelStep3 = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn thoát và xóa bản nháp của đề thi này không?')) return
+    setLoading(true)
+    try {
+      if (draftId) {
+        await examClient.deleteExam(draftId).catch(() => {})
+      }
+      const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+      localStorage.removeItem(userJobKey)
+      localStorage.removeItem('active_ai_exam_job_id')
+      if (jobId) {
+        localStorage.removeItem(`ai_exam_title_${jobId}`)
+        localStorage.removeItem(`ai_exam_level_${jobId}`)
+        localStorage.removeItem(`ai_exam_description_${jobId}`)
+        await aiExamClient.deleteJob(jobId).catch(() => {})
+      }
+      toast({ title: 'Thành công', description: 'Đã hủy và xóa đề thi.' })
+      navigate('/exam')
+    } catch (e: any) {
+      toast({ title: 'Lỗi', description: e.message || 'Không thể xóa đề thi.', variant: 'destructive' })
     } finally {
       setLoading(false)
     }
@@ -1884,6 +2000,13 @@ export default function AICreateExamPage() {
         {step >= 3 && step < 4 && (
           <div className="flex items-center gap-3 mt-2 md:mt-0">
             <button
+              onClick={handleCancelStep3}
+              disabled={savingDraft || loading}
+              className="px-5 py-2.5 bg-red-50 border border-red-200 text-red-600 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors shadow-sm disabled:opacity-50"
+            >
+              Hủy & Thoát
+            </button>
+            <button
               onClick={() => setShowFeedbackModal(true)}
               className="px-5 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-600 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-400 rounded-xl text-sm font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shadow-sm"
             >
@@ -1946,7 +2069,10 @@ export default function AICreateExamPage() {
                 <p className="text-sm text-red-500">{failedMsg}</p>
                 <button
                   onClick={() => {
-                    setStep(1)
+                  const userJobKey = user ? `active_ai_exam_job_id_${user.id}` : 'active_ai_exam_job_id'
+                  localStorage.removeItem(userJobKey)
+                  localStorage.removeItem('active_ai_exam_job_id')
+                  setStep(1)
                     setFailed(false)
                     setJobId('')
                   }}
@@ -1956,7 +2082,17 @@ export default function AICreateExamPage() {
                 </button>
               </div>
             ) : (
-              <Step2Processing jobId={jobId} onDone={handleJobDone} onFailed={handleJobFailed} />
+              <div className="space-y-6">
+                <Step2Processing jobId={jobId} onDone={handleJobDone} onFailed={handleJobFailed} />
+                <div className="flex justify-center border-t border-border pt-6">
+                  <button
+                    onClick={handleCancelStep2}
+                    className="px-6 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-sm font-bold transition-colors shadow-sm"
+                  >
+                    Hủy & Quay lại
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -1978,6 +2114,7 @@ export default function AICreateExamPage() {
             draftId={draftId}
             audioId={aiResult?.audio_id}
             onBack={() => setStep(3)}
+            jobId={jobId}
           />
         )}
         </>

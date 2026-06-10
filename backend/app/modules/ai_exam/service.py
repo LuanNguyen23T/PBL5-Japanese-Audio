@@ -919,18 +919,6 @@ class AIExamService:
             timestamps=timestamps,
             questions=questions,
         )
-        
-        # MIA: Store successful exam generation in memory
-        # Using the transcript as the interaction key
-        import asyncio
-        asyncio.create_task(self.planner.provide_feedback(
-            task_type="ai_exam_generation",
-            strategy=f"JLPT {jlpt_level} exam generated from audio {filename}",
-            quality=1.0,
-            user_id=user_id,
-            interaction=raw_transcript[:1000] # Interaction key is the first 1000 chars of transcript
-        ))
-
         return result
 
     @property

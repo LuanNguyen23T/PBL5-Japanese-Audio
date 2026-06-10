@@ -117,7 +117,7 @@ class AIPhotoService:
             return True
 
         word_count = len(cleaned.split())
-        if word_count < 45:
+        if word_count < 10:
             return True
 
         lowered = cleaned.lower()
@@ -141,7 +141,7 @@ class AIPhotoService:
         style_normalized = self._clean_text(style_positive).lower().strip(" ,.")
         if style_normalized and normalized == style_normalized:
             return True
-        if style_normalized and normalized.startswith(style_normalized) and word_count < 65:
+        if style_normalized and normalized.startswith(style_normalized) and word_count < 20:
             return True
 
         return False
@@ -239,20 +239,29 @@ class AIPhotoService:
         return ""
 
     def _build_fallback_prompt_bundle(self, for_action: bool, lm_input: str | None = None) -> tuple[str, str]:
-        """Fallback uses generic drawing-style constraints plus a simple safe scene."""
-        fallback_prompt = (
-            "monochrome black and white manga-style educational illustration, medium-wide composition, "
-            "clear classroom scene with desks, blackboard, and windows, exactly two characters only, "
-            "one female student standing beside a teacher's desk and holding a test paper, one male teacher sitting and working at the desk, "
-            "a clear arrow marker pointing to the female student, clean outline, simple gray shading"
-        )
-        if for_action:
-            fallback_prompt += ", one clear primary action, no crowd"
+        """Fallback uses generic drawing-style constraints plus a cleaned user description."""
+        user_desc = ""
+        if lm_input:
+            match = re.search(r"User source prompt \(possibly Vietnamese\):\s*(.*)", lm_input)
+            if match:
+                user_desc = match.group(1).strip()
+            else:
+                user_desc = lm_input.strip()
 
-        fallback_negative = (
-            "color, photo, complex shading, gradients, text, watermark, logo, 3d, photorealistic, blur, distortion, "
-            "bad anatomy, crowd, many people, extra characters, duplicate people, close-up portrait, empty background"
+        if not user_desc or user_desc.lower() == "no description provided.":
+            user_desc = "a simple educational scene"
+
+        style_positive = self._clean_text(self.base_prompt) or (
+            "monochrome black and white manga-style, clean lineart, high contrast, educational worksheet style"
         )
+        style_negative = self._clean_text(self.negative_prompt) or (
+            "(high contrast:1.4), (photo:1.2), color, complex shading, gradients, complex background, text, words, "
+            "watermark, error, cropped, signature, blurred, out of focus, duplicate characters, distorted faces"
+        )
+
+        fallback_prompt = f"{user_desc}, {style_positive}"
+        fallback_negative = style_negative
+
         return self._apply_scene_guardrails(fallback_prompt, fallback_negative, for_action)
 
     async def _build_english_prompt(self, lm_input: str, for_action: bool, mia_context: str = "") -> tuple[str, str]:
@@ -266,28 +275,17 @@ class AIPhotoService:
         )
 
         system = (
-            "You are a Draw Things prompt writer for JLPT listening illustrations. "
-            "Your job is to translate the user source prompt to English and then enrich it into a detailed, concrete scene prompt. "
-            "Generate an English prompt and a negative prompt in JSON. "
+            "You are an AI assistant that translates the user prompt to English and expands it into an image generation prompt. "
+            "CRITICAL REQUIREMENT: You MUST translate all Vietnamese inputs to English. The output JSON values MUST be 100% English only. "
+            "Absolutely NO Vietnamese words, names, or letters (with or without accents) are allowed in the prompt or negative_prompt. "
             "Output JSON only with exactly these keys: {\"prompt\":\"...\",\"negative_prompt\":\"...\"}. "
-            "The prompt and negative_prompt must be English only, plain ASCII only, and must not contain Vietnamese words. "
-            "Prompt must describe scene according to user request; keep composition clear and natural. "
-            "Prompt must be long and detailed (around 90-170 words), not a short generic template. "
-            "Preserve all explicit entities and actions from the user request (who, where, posture, direction, objects, relationship). "
-            "If the user mentions an arrow marker, include a clear arrow and its target person in the prompt. "
-            "Always keep environment context and background objects (not character-only portraits). "
-            "Use medium-wide framing to show both character(s) and place. "
-            "Default to 1-2 people only unless user explicitly asks for more. "
+            "Prompt must describe the scene based on the user's request, keeping the layout clear and natural. "
             f"Always include these global style tags in prompt: {style_positive}. "
             f"Always include these global negative tags in negative_prompt: {style_negative}. "
-            "negative_prompt must not be empty. "
-            "No markdown, no explanation."
+            "Do not include any markdown formatting, code blocks, or extra explanation."
         )
         if for_action:
             system += " Focus on one key action if action mode is requested."
-
-        if mia_context:
-            system += f" \n\nIMPORTANT: Here are some previously successful strategies and historical context from this user. Use these as strong inspiration for your prompt style:\n{mia_context}"
 
         payloads = [
             {
@@ -296,7 +294,7 @@ class AIPhotoService:
                     {"role": "system", "content": system},
                     {"role": "user", "content": lm_input},
                 ],
-                "temperature": 0.3,
+                "temperature": 0.7,
                 "max_tokens": 520,
             },
             {
@@ -311,7 +309,7 @@ class AIPhotoService:
                     },
                     {"role": "user", "content": lm_input},
                 ],
-                "temperature": 0.2,
+                "temperature": 0.5,
                 "max_tokens": 420,
             },
         ]
@@ -523,26 +521,12 @@ class AIPhotoService:
                 answers=answers,
             )
             
-            # MIA: Get context without replacing the user's raw input
-            mia_context = await self.planner.plan_task(
-                task_type="ai_photo_context",
-                user_input=lm_input,
-                user_id=user_id,
-                context={"photo_type": "context"}
-            )
+            # MIA/RAG disabled for image generation to prevent prompt similarity constraints
+            mia_context = ""
             
             lm_prompt, lm_negative = await self._build_english_prompt(lm_input, for_action=False, mia_context=mia_context)
             image = await self._generate_single_image(lm_prompt, lm_negative)
             lm_info = f"prompt: {lm_prompt}\nnegative_prompt: {lm_negative}"
-            
-            # MIA: Store result in memory
-            await self.planner.provide_feedback(
-                task_type="ai_photo_context",
-                strategy=lm_prompt,
-                quality=1.0, # Defaulting to 1.0 for successful generation, can be refined with user rating later
-                user_id=user_id,
-                interaction=description
-            )
 
         else:
             if not answers or len(answers) < 4:
@@ -551,13 +535,9 @@ class AIPhotoService:
                     detail="Action type requires exactly 4 answer choices.",
                 )
             panels: List[PILImage] = []
-            # MIA: Get context for action
-            mia_context = await self.planner.plan_task(
-                task_type="ai_photo_action",
-                user_input=description,
-                user_id=user_id,
-                context={"photo_type": "action"}
-            )
+            
+            # MIA/RAG disabled for image generation to prevent prompt similarity constraints
+            mia_context = ""
             prompts: List[str] = []
 
             for answer in answers[:4]:

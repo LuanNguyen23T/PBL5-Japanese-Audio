@@ -10,9 +10,9 @@ class VectorDB:
     def __init__(self, collection_name: str = "japanese_audio_memory"):
         self.settings = get_settings()
         
-        # Ensure absolute path to backend/storage/vector_db
+        # Ensure absolute path to backend/.storage/vector_db
         base_dir = Path(__file__).parent.parent.parent.parent
-        db_path = base_dir / "storage" / "vector_db"
+        db_path = base_dir / ".storage" / "vector_db"
         db_path.mkdir(parents=True, exist_ok=True)
         
         self.client = chromadb.PersistentClient(path=str(db_path))

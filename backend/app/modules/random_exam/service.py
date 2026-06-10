@@ -135,8 +135,9 @@ class RandomExamService:
         # Query questions with source exam loaded, then strictly filter by selected JLPT level.
         stmt = (
             select(Question)
+            .join(Question.exam)
             .options(selectinload(Question.answers), selectinload(Question.exam))
-            .where(Question.exam_id.isnot(None))
+            .where(Question.exam_id.isnot(None), Exam.is_published == True)
         )
 
         result = await db.execute(stmt)
@@ -196,16 +197,8 @@ class RandomExamService:
                     logger.warning(f"No questions available for {mondai_key}")
                     continue
 
-                # Special handling for Mondai 5 in N1 and N2
-                if mondai_id == 5 and jlpt_level in ["N1", "N2"]:
-                    # Use ALL available Mondai 5 questions, not random selection
-                    selected = pool
-                    logger.info(
-                        f"Mondai 5 ({jlpt_level}): Using all {len(pool)} available questions (no randomization)"
-                    )
-                else:
-                    # Random selection for other mondais with cross-exam diversity.
-                    selected = self._select_diverse_questions(pool, count)
+                # Random selection for all mondais with cross-exam diversity.
+                selected = self._select_diverse_questions(pool, count)
 
                 selected_questions.extend(selected)
                 mondai_summary[mondai_key] = len(selected)

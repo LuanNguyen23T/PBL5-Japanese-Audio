@@ -31,7 +31,7 @@ router = APIRouter(prefix="/tts", tags=["tts"])
 TTS_SERVICE_URL = "http://127.0.0.1:7861"
 
 # Bell sound paths
-_GENERATED_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "generated")
+_GENERATED_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".generated")
 BELL_START_PATH = os.path.normpath(os.path.join(_GENERATED_DIR, "Bell_dau.wav"))
 BELL_END_PATH = os.path.normpath(os.path.join(_GENERATED_DIR, "Bell_cuoi.wav"))
 

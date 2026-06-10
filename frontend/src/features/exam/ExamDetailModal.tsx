@@ -251,7 +251,7 @@ export default function ExamDetailModal({ exam, onClose, onExamDeleted, onExamUp
  }
 
  const handleOpenTakeExam = () => {
- const takeUrl = `/test/exams/${exam.exam_id}/take`
+ const takeUrl = `/test/exams/${exam.exam_id}`
  const examWindow = window.open(takeUrl, '_blank', 'noopener,noreferrer')
  if (!examWindow) window.location.assign(takeUrl)
  onClose()

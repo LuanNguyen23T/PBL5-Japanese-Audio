@@ -88,10 +88,7 @@ def _job_from_result(job_id: str, result: AIExamResult, progress_message: str) -
 
 
 def _build_draft_title(jlpt_level: str, exam_title: str, filename: str) -> str:
-    base_title = (exam_title or "").strip()
-    if not base_title:
-        base_title = Path(filename).stem
-    return f"[Nháp] [{jlpt_level}] {base_title}"
+    return f"[Tạm thời] [{jlpt_level}] Đề thi AI"
 
 
 async def _create_exam_draft_from_ai_result(
